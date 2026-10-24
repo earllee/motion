@@ -1,10 +1,17 @@
 # Motion
 
-Notion's editor for the Markdown files in your repo. A macOS app.
+A Notion-like Markdown editor for macOS run fully local.
 
 ## Why
 
-More and more working docs (plans, specs, notes, CLAUDE.md) are Markdown files in a git repo, written together with AI coding agents. The tools for reading and editing them make you choose: Notion has the best editing feel but keeps your docs in its own database, while VS Code and Obsidian work on the real files but feel like editing source. Motion is both: Notion's block editing on top of plain `.md` files, with the files staying the source of truth.
+More and more working docs (plans, specs, notes, CLAUDE.md) are Markdown files in a git repo, written together with AI coding agents. The tools for reading and editing them make you choose: Notion has the best editing feel but keeps your docs in its own database, while VS Code and Obsidian work on the real files but feel like editing source.
+
+Motion is both: Notion's block editing on top of plain `.md` files, with the files staying the source of truth.
+
+Two things set it apart from other Markdown editors:
+
+- **Blocks, not WYSIWYG.** Slash menu, drag handles and block selection, the way Notion works, rather than a styled text area.
+- **Built for editing alongside an agent.** Untouched text is never rewritten, so diffs stay small, and edits made on disk while a file is open show up live without clobbering yours.
 
 ## What it does
 
