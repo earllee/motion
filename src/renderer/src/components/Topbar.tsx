@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Prefs } from '@shared/types'
-import { baseOf } from '@/api'
+import { baseOf, dirOf } from '@/api'
 import { PageIcon, MoreIcon, StarIcon, StarFilledIcon, MarkdownIcon, CopyIcon, FolderOpenIcon, ExternalIcon, SearchIcon } from './icons'
 import { Popover, rectOf, type AnchorRect } from './Popover'
 import type { SaveStatus } from './PageView'
@@ -47,9 +47,12 @@ export function Topbar(p: Props) {
     return () => clearInterval(t)
   }, [])
 
-  const rel = p.path ? p.path.slice(p.root.length + 1) : ''
+  // a file outside the workspace (opened from elsewhere) shows where it really lives
+  const outside = !!p.path && !p.path.startsWith(p.root + '/')
+  const rel = p.path && !outside ? p.path.slice(p.root.length + 1) : ''
   const parts = rel ? rel.split('/') : []
   const dirs = parts.slice(0, -1)
+  const outsideDir = outside ? baseOf(dirOf(p.path!)) || '/' : ''
 
   const status =
     p.status === 'saving'
@@ -67,9 +70,15 @@ export function Topbar(p: Props) {
   return (
     <header className="topbar">
       <nav className="crumbs">
-        <button className="crumb dim" onClick={() => p.onCrumb('')}>
-          <span>{baseOf(p.root)}</span>
-        </button>
+        {outside ? (
+          <button className="crumb dim" onClick={() => void window.motion.reveal(p.path!)} title={`${dirOf(p.path!).replace(/^\/Users\/[^/]+/, '~')} (outside ${baseOf(p.root)}). Click to reveal in Finder.`}>
+            <span>{outsideDir}</span>
+          </button>
+        ) : (
+          <button className="crumb dim" onClick={() => p.onCrumb('')}>
+            <span>{baseOf(p.root)}</span>
+          </button>
+        )}
         {dirs.map((d, i) => (
           <span key={i} style={{ display: 'contents' }}>
             <span className="crumb-sep">/</span>
@@ -81,7 +90,7 @@ export function Topbar(p: Props) {
         {p.path && (
           <>
             <span className="crumb-sep">/</span>
-            <span className="crumb" title={rel}>
+            <span className="crumb" title={outside ? p.path! : rel}>
               <PageIcon size={16} />
               <span>{p.title}</span>
             </span>

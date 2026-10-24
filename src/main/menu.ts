@@ -37,6 +37,7 @@ export function buildMenu(run: (cmd: MenuCommand) => void): Menu {
       submenu: [
         cmd('New Page', 'new-page', 'CmdOrCtrl+N'),
         cmd('New Tab', 'new-tab', 'CmdOrCtrl+T'),
+        { ...cmd('New Window', 'new-window', 'CmdOrCtrl+Shift+N'), id: 'new-window' },
         { type: 'separator' },
         cmd('Open Folder…', 'open-folder', 'CmdOrCtrl+O'),
         cmd('Open File…', 'open-file', 'CmdOrCtrl+Shift+O'),

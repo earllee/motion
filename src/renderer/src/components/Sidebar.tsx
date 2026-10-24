@@ -313,6 +313,7 @@ export function Sidebar(props: SidebarProps) {
           width={300}
           items={[
             { id: 'open', label: 'Open folder…', icon: <FolderOpenIcon size={18} />, hint: '⌘O', onSelect: () => props.onOpenFolder() },
+            { id: 'window', label: 'New window', icon: <PlusIcon size={18} />, hint: '⇧⌘N', onSelect: () => window.motion.newWindow() },
             { id: 'reveal', label: 'Reveal in Finder', icon: <ExternalIcon size={18} />, onSelect: () => void window.motion.reveal(root) },
             { id: 'allfiles', label: 'Show non-Markdown files', icon: <CodeIcon size={16} />, checked: props.showAllFiles, onSelect: props.onToggleAllFiles },
             ...props.recentRoots

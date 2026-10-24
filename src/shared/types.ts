@@ -52,6 +52,10 @@ export interface AppState {
   prefs: Prefs
 }
 
+/** AppState fields that belong to one window; the rest are shared by every window */
+export const WINDOW_KEYS = ['root', 'tabs', 'activeTab', 'lastFile', 'expanded'] as const
+export type WindowState = Pick<AppState, (typeof WINDOW_KEYS)[number]>
+
 export interface FsChange {
   root: string
   changed: string[]
@@ -91,6 +95,7 @@ export interface ReadResult {
 
 export type MenuCommand =
   | 'new-page'
+  | 'new-window'
   | 'open-folder'
   | 'open-file'
   | 'search'
@@ -144,6 +149,9 @@ export interface MotionApi {
   onFsChange(cb: (change: FsChange) => void): () => void
   onMenu(cb: (cmd: MenuCommand) => void): () => void
   onOpenPath(cb: (path: string) => void): () => void
+  /** shared state changed in another window */
+  onSharedState(cb: (shared: Partial<AppState>) => void): () => void
+  newWindow(): void
   onFullscreen(cb: (on: boolean) => void): () => void
   closeWindow(): void
   platform: string

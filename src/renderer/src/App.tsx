@@ -396,12 +396,23 @@ export default function App() {
       setFsChange(change)
     })
     const offOpen = api.onOpenPath(async (p) => {
+      const prevRoot = stateRef.current?.root
       const s = await api.getState()
       setState(s)
       const snap = await api.getIndex()
       setIndex(snap)
       // a file (from Finder, `open -a Motion`, the Dock); folders open as the workspace
       if (p !== snap?.root && /\.[a-z0-9]+$/i.test(p)) {
+        // this window just got its workspace, so tabs from before it don't carry over
+        if (s.root !== prevRoot) {
+          closedTabs.current = []
+          const tab = makeTab(p)
+          setTabs([tab])
+          setActiveId(tab.id)
+          resetPageUi()
+          noteRecent(p)
+          return
+        }
         // already open in a tab? switch to it
         const existing = tabsRef.current.find((t) => t.path === p)
         if (existing) activate(existing.id)
@@ -413,10 +424,17 @@ export default function App() {
       }
     })
     const offFull = api.onFullscreen(setFullscreen)
+    // another window changed prefs, favorites or recents; each window keeps its own sidebar
+    const offShared = api.onSharedState((shared) =>
+      setState((s) =>
+        s ? { ...s, ...shared, prefs: { ...s.prefs, ...shared.prefs, sidebarOpen: s.prefs.sidebarOpen, sidebarWidth: s.prefs.sidebarWidth } } : s
+      )
+    )
     return () => {
       offFs()
       offOpen()
       offFull()
+      offShared()
     }
   }, [openFile, activate])
 

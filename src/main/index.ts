@@ -9,12 +9,14 @@ import {
   nativeTheme,
   clipboard,
   Menu,
-  screen
+  screen,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent
 } from 'electron'
 import { promises as fsp, existsSync, statSync, writeFileSync, readFileSync, mkdirSync } from 'fs'
 import { join, dirname, basename, extname, resolve, sep } from 'path'
 import { pathToFileURL } from 'url'
-import type { AppState, FsChange, MenuCommand, Prefs, WriteOptions, WriteResult } from '@shared/types'
+import { WINDOW_KEYS, type AppState, type FsChange, type MenuCommand, type Prefs, type WindowState, type WriteOptions, type WriteResult } from '@shared/types'
 import { Workspace } from './workspace'
 import { buildMenu } from './menu'
 
@@ -43,61 +45,123 @@ const DEFAULT_STATE: AppState = {
   prefs: DEFAULT_PREFS
 }
 
+/** One window's own state, persisted so every window reopens on relaunch. */
+interface WindowSession extends WindowState {
+  bounds?: Electron.Rectangle
+}
+
+/** On disk: the shared state plus one session per window. The top-level window
+ *  fields are only read once, to migrate state saved before there were windows. */
+type Persisted = AppState & { windows?: WindowSession[] }
+
+const emptySession = (root: string | null = null): WindowSession => ({ root, tabs: [], activeTab: 0, lastFile: null, expanded: [] })
+
 // Allow a separate profile for tests/dev: MOTION_USER_DATA=/tmp/x
 if (process.env.MOTION_USER_DATA) app.setPath('userData', process.env.MOTION_USER_DATA)
 
 const statePath = () => join(app.getPath('userData'), 'state.json')
 const boundsPath = () => join(app.getPath('userData'), 'window.json')
 
-function loadState(): AppState {
+function loadState(): Persisted {
   try {
     const raw = JSON.parse(readFileSync(statePath(), 'utf8'))
-    const loaded = { ...DEFAULT_STATE, ...raw, prefs: { ...DEFAULT_PREFS, ...(raw.prefs || {}) } }
+    const loaded: Persisted = { ...DEFAULT_STATE, ...raw, prefs: { ...DEFAULT_PREFS, ...(raw.prefs || {}) } }
     if (!loaded.seenSince) loaded.seenSince = Date.now()
+    if (!loaded.windows) {
+      const { root, tabs, activeTab, lastFile, expanded } = loaded
+      loaded.windows = root ? [{ root, tabs, activeTab, lastFile, expanded }] : []
+    }
     return loaded
   } catch {
-    return { ...DEFAULT_STATE, seenSince: Date.now() }
+    return { ...DEFAULT_STATE, seenSince: Date.now(), windows: [] }
   }
 }
 
 let state = loadState()
+
+interface WindowCtx {
+  id: number
+  win: BrowserWindow
+  session: WindowSession
+  workspace: Workspace | null
+}
+const windows = new Map<number, WindowCtx>()
+let quitting = false
+let pendingOpen: string | null = null
+
+const live = () => [...windows.values()].filter((c) => !c.win.isDestroyed())
+
 let saveTimer: NodeJS.Timeout | null = null
+function persistNow() {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = null
+  try {
+    mkdirSync(app.getPath('userData'), { recursive: true })
+    const sessions = [...windows.values()].map((c) => c.session)
+    writeFileSync(statePath(), JSON.stringify({ ...state, ...emptySession(), windows: sessions }, null, 2))
+  } catch {
+    /* ignore */
+  }
+}
 function persistState() {
   if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    try {
-      mkdirSync(app.getPath('userData'), { recursive: true })
-      writeFileSync(statePath(), JSON.stringify(state, null, 2))
-    } catch {
-      /* ignore */
-    }
-  }, 200)
+  saveTimer = setTimeout(persistNow, 200)
 }
 
-let win: BrowserWindow | null = null
-let workspace: Workspace | null = null
-let pendingOpen: string | null = null
+/** What a window's renderer sees: the shared state with its own window fields on top. */
+function viewOf(ctx: WindowCtx): AppState {
+  const { windows: _, ...shared } = state
+  const { bounds: __, ...own } = ctx.session
+  return { ...shared, ...own }
+}
+
+function sharedOf(): Partial<AppState> {
+  const { windows: _, ...shared } = state
+  for (const k of WINDOW_KEYS) delete (shared as Partial<AppState>)[k]
+  return shared
+}
+
+/** Tell the other windows that shared state (prefs, favorites, recents…) changed. */
+function broadcastShared(except?: WindowCtx) {
+  const shared = sharedOf()
+  for (const c of live()) if (c !== except) c.win.webContents.send('app:shared-state', shared)
+}
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'motion-asset', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }
 ])
 
-function send(channel: string, payload: unknown) {
-  if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
+function send(ctx: WindowCtx, channel: string, payload: unknown) {
+  if (!ctx.win.isDestroyed()) ctx.win.webContents.send(channel, payload)
 }
 
-async function setRoot(root: string | null) {
-  workspace?.dispose()
-  workspace = null
-  state.root = root
+function ctxOf(e: IpcMainInvokeEvent | IpcMainEvent): WindowCtx {
+  const ctx = windows.get(e.sender.id)
+  if (!ctx) throw new Error('No window for this renderer')
+  return ctx
+}
+
+const within = (p: string, root: string) => p === root || p.startsWith(root + sep)
+
+/** The workspaces that index `p`, so their watchers know a write was ours. */
+const workspacesFor = (p: string) =>
+  live()
+    .map((c) => c.workspace)
+    .filter((w): w is Workspace => !!w && within(p, w.root))
+
+async function setRoot(ctx: WindowCtx, root: string | null) {
+  ctx.workspace?.dispose()
+  ctx.workspace = null
+  ctx.session.root = root
   if (root) {
     state.recentRoots = [root, ...state.recentRoots.filter((r) => r !== root)].slice(0, 10)
-    workspace = new Workspace(root, (change: FsChange) => send('fs:change', change))
-    await workspace.init()
+    ctx.workspace = new Workspace(root, (change: FsChange) => send(ctx, 'fs:change', change))
+    await ctx.workspace.init()
     app.addRecentDocument(root)
+    broadcastShared(ctx)
   }
   persistState()
-  return workspace?.snapshot() ?? null
+  return ctx.workspace?.snapshot() ?? null
 }
 
 /** Pick a workspace root for a path opened from Finder/CLI. */
@@ -109,33 +173,66 @@ function rootFor(p: string): string {
   return dir
 }
 
-async function openPath(p: string) {
+function focus(ctx: WindowCtx) {
+  if (ctx.win.isMinimized()) ctx.win.restore()
+  ctx.win.focus()
+}
+
+/**
+ * Open a file or folder from Finder, the CLI or Open File…. It goes to the window
+ * already showing its folder, else an empty window, else a new one, so a window's
+ * workspace never changes underneath its open tabs.
+ */
+async function openPath(p: string, from?: WindowCtx) {
   const abs = resolve(p)
   if (!existsSync(abs)) return
   const isDir = statSync(abs).isDirectory()
-  if (isDir) {
-    if (state.root !== abs) await setRoot(abs)
-    send('app:open-path', abs)
+  const owner = live()
+    .filter((c) => c.session.root && (isDir ? c.session.root === abs : within(abs, c.session.root)))
+    .sort((a, b) => b.session.root!.length - a.session.root!.length)[0] // nested workspaces: the closest wins
+  if (owner) {
+    focus(owner)
+    send(owner, 'app:open-path', abs)
     return
   }
-  if (!state.root || !abs.startsWith(state.root + sep)) await setRoot(rootFor(abs))
-  send('app:open-path', abs)
-}
-
-function loadBounds(): Electron.Rectangle | null {
-  try {
-    const b = JSON.parse(readFileSync(boundsPath(), 'utf8'))
-    const area = screen.getDisplayMatching(b).workArea
-    if (b.x >= area.x - 50 && b.y >= area.y - 50 && b.width > 400 && b.height > 300) return b
-  } catch {
-    /* none */
+  const root = isDir ? abs : rootFor(abs)
+  const empty = from && !from.session.root ? from : live().find((c) => !c.session.root)
+  if (empty) {
+    await setRoot(empty, root)
+    if (!isDir) empty.session.lastFile = abs
+    focus(empty)
+    send(empty, 'app:open-path', abs)
+    return
   }
-  return null
+  await createWindow({ ...emptySession(root), lastFile: isDir ? null : abs })
 }
 
-function createWindow() {
-  const bounds = loadBounds()
-  win = new BrowserWindow({
+function onScreen(b: Electron.Rectangle | null | undefined): Electron.Rectangle | null {
+  if (!b) return null
+  const area = screen.getDisplayMatching(b).workArea
+  return b.x >= area.x - 50 && b.y >= area.y - 50 && b.width > 400 && b.height > 300 ? b : null
+}
+
+/** Bounds saved before there were windows (window.json) seed the first one. */
+function legacyBounds(): Electron.Rectangle | null {
+  try {
+    return onScreen(JSON.parse(readFileSync(boundsPath(), 'utf8')))
+  } catch {
+    return null
+  }
+}
+
+/** New windows open offset from the focused one, like Finder's. */
+function cascadeBounds(): Electron.Rectangle | null {
+  const ref = BrowserWindow.getFocusedWindow() ?? live().at(-1)?.win
+  if (!ref) return null
+  const b = ref.getBounds()
+  return onScreen({ ...b, x: b.x + 28, y: b.y + 28 }) ?? b
+}
+
+async function createWindow(session: WindowSession = emptySession()): Promise<WindowCtx> {
+  const bounds = onScreen(session.bounds) ?? cascadeBounds() ?? legacyBounds()
+  const win = new BrowserWindow({
     width: bounds?.width ?? 1280,
     height: bounds?.height ?? 860,
     x: bounds?.x,
@@ -154,23 +251,29 @@ function createWindow() {
       spellcheck: state.prefs.spellcheck
     }
   })
+  const ctx: WindowCtx = { id: win.webContents.id, win, session: { ...session }, workspace: null }
+  windows.set(ctx.id, ctx)
+  // the workspace must be indexed before the renderer asks for it
+  const root = session.root && existsSync(session.root) ? session.root : null
+  await setRoot(ctx, root)
 
-  win.once('ready-to-show', () => win?.show())
+  win.once('ready-to-show', () => win.show())
   const saveBounds = () => {
-    if (!win || win.isDestroyed() || win.isMinimized() || win.isFullScreen()) return
-    try {
-      writeFileSync(boundsPath(), JSON.stringify(win.getBounds()))
-    } catch {
-      /* ignore */
-    }
+    if (win.isDestroyed() || win.isMinimized() || win.isFullScreen()) return
+    ctx.session.bounds = win.getBounds()
+    persistState()
   }
   win.on('resize', saveBounds)
   win.on('move', saveBounds)
   win.on('closed', () => {
-    win = null
+    ctx.workspace?.dispose()
+    ctx.workspace = null
+    // a window closed on its own is forgotten; quitting, or closing the last one, keeps it for next launch
+    if (!quitting && live().length > 0) windows.delete(ctx.id)
+    persistNow()
   })
-  win.on('enter-full-screen', () => send('window:fullscreen', true))
-  win.on('leave-full-screen', () => send('window:fullscreen', false))
+  win.on('enter-full-screen', () => send(ctx, 'window:fullscreen', true))
+  win.on('leave-full-screen', () => send(ctx, 'window:fullscreen', false))
 
   // Links never navigate the app window.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -178,7 +281,7 @@ function createWindow() {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e, url) => {
-    if (url !== win?.webContents.getURL()) {
+    if (url !== win.webContents.getURL()) {
       e.preventDefault()
       if (/^https?:|^mailto:/.test(url)) void shell.openExternal(url)
     }
@@ -186,48 +289,68 @@ function createWindow() {
 
   if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else void win.loadFile(join(__dirname, '../renderer/index.html'))
+  return ctx
 }
 
 function menuCommand(cmd: MenuCommand) {
+  if (cmd === 'new-window') {
+    void createWindow()
+    return
+  }
   if (cmd === 'theme-system' || cmd === 'theme-light' || cmd === 'theme-dark') {
     const theme = cmd.slice(6) as Prefs['theme']
     state.prefs = { ...state.prefs, theme }
     nativeTheme.themeSource = theme
     persistState()
+    broadcastShared()
   }
-  send('menu', cmd)
+  const target = BrowserWindow.getFocusedWindow() ?? live().at(-1)?.win
+  if (target && !target.isDestroyed()) target.webContents.send('menu', cmd)
 }
 
 function registerIpc() {
-  ipcMain.handle('app:getState', () => state)
-  ipcMain.handle('app:setState', (_e, patch: Partial<AppState>) => {
-    state = { ...state, ...patch, prefs: { ...state.prefs, ...(patch.prefs || {}) } }
-    if (patch.prefs?.theme) nativeTheme.themeSource = patch.prefs.theme
+  ipcMain.handle('app:getState', (e) => viewOf(ctxOf(e)))
+  ipcMain.handle('app:setState', (e, patch: Partial<AppState>) => {
+    const ctx = ctxOf(e)
+    const own: Partial<WindowState> = {}
+    const shared: Partial<AppState> = { ...patch }
+    for (const k of WINDOW_KEYS) {
+      if (k in patch) Object.assign(own, { [k]: patch[k] })
+      delete shared[k]
+    }
+    ctx.session = { ...ctx.session, ...own }
+    if (Object.keys(shared).length) {
+      state = { ...state, ...shared, prefs: { ...state.prefs, ...(shared.prefs || {}) } }
+      if (shared.prefs?.theme) nativeTheme.themeSource = shared.prefs.theme
+      broadcastShared(ctx)
+    }
     persistState()
-    return state
+    return viewOf(ctx)
   })
 
-  ipcMain.handle('dialog:openFolder', async () => {
-    const r = await dialog.showOpenDialog(win!, {
+  ipcMain.handle('dialog:openFolder', async (e) => {
+    const ctx = ctxOf(e)
+    const r = await dialog.showOpenDialog(ctx.win, {
       properties: ['openDirectory', 'createDirectory'],
-      defaultPath: state.root ?? app.getPath('home')
+      defaultPath: ctx.session.root ?? app.getPath('home')
     })
     return r.canceled ? null : r.filePaths[0]
   })
-  ipcMain.handle('dialog:openFile', async () => {
-    const r = await dialog.showOpenDialog(win!, {
+  ipcMain.handle('dialog:openFile', async (e) => {
+    const ctx = ctxOf(e)
+    const r = await dialog.showOpenDialog(ctx.win, {
       properties: ['openFile'],
       filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
-      defaultPath: state.root ?? app.getPath('home')
+      defaultPath: ctx.session.root ?? app.getPath('home')
     })
     if (r.canceled) return null
-    await openPath(r.filePaths[0])
+    await openPath(r.filePaths[0], ctx)
     return r.filePaths[0]
   })
 
-  ipcMain.handle('ws:setRoot', (_e, root: string | null) => setRoot(root))
-  ipcMain.handle('ws:index', () => workspace?.snapshot() ?? null)
-  ipcMain.handle('ws:search', (_e, q: string) => workspace?.search(q) ?? [])
+  ipcMain.handle('ws:setRoot', (e, root: string | null) => setRoot(ctxOf(e), root))
+  ipcMain.handle('ws:index', (e) => ctxOf(e).workspace?.snapshot() ?? null)
+  ipcMain.handle('ws:search', (e, q: string) => ctxOf(e).workspace?.search(q) ?? [])
 
   ipcMain.handle('fs:read', async (_e, p: string) => {
     const [content, st] = await Promise.all([fsp.readFile(p, 'utf8'), fsp.stat(p)])
@@ -249,6 +372,12 @@ function registerIpc() {
       return null
     }
   }
+  const noteWrite = (p: string, content: string, mtime: number, size: number) => {
+    for (const w of workspacesFor(p)) w.noteWrite(p, content, mtime, size)
+  }
+  const refresh = async (p: string) => {
+    await Promise.all(workspacesFor(p).map((w) => w.refresh()))
+  }
   ipcMain.handle('fs:write', async (_e, p: string, content: string, opts: WriteOptions = {}): Promise<WriteResult> => {
     const refused = checkWrite(p, opts, readOrNull(p))
     if (refused) return refused
@@ -257,7 +386,7 @@ function registerIpc() {
       if (opts.create) mkdirSync(dirname(p), { recursive: true })
       writeFileSync(p, content, 'utf8')
       const st = statSync(p)
-      workspace?.noteWrite(p, content, st.mtimeMs, st.size)
+      noteWrite(p, content, st.mtimeMs, st.size)
       return { ok: true, mtime: st.mtimeMs }
     } catch (err) {
       return { ok: false, reason: 'error', message: String(err) }
@@ -273,7 +402,7 @@ function registerIpc() {
       if (opts.create) mkdirSync(dirname(p), { recursive: true })
       writeFileSync(p, content, 'utf8')
       const st = statSync(p)
-      workspace?.noteWrite(p, content, st.mtimeMs, st.size)
+      noteWrite(p, content, st.mtimeMs, st.size)
       e.returnValue = { ok: true, mtime: st.mtimeMs }
     } catch (err) {
       e.returnValue = { ok: false, reason: 'error', message: String(err) }
@@ -291,8 +420,8 @@ function registerIpc() {
     const p = unique(dir, name || 'Untitled', '.md')
     await fsp.writeFile(p, content, { flag: 'wx' })
     const st = await fsp.stat(p)
-    workspace?.noteWrite(p, content, st.mtimeMs, st.size)
-    await workspace?.refresh()
+    noteWrite(p, content, st.mtimeMs, st.size)
+    await refresh(p)
     return p
   })
   ipcMain.handle('fs:createFolder', async (_e, dir: string) => {
@@ -301,7 +430,7 @@ function registerIpc() {
     await fsp.mkdir(p, { recursive: true })
     const page = join(p, 'Untitled.md')
     await fsp.writeFile(page, '')
-    await workspace?.refresh()
+    await refresh(page)
     return page
   })
   ipcMain.handle('fs:rename', async (_e, from: string, to: string) => {
@@ -311,21 +440,22 @@ function registerIpc() {
     await fsp.rename(from, to)
     state.recentFiles = state.recentFiles.map((f) => (f === from ? to : f.startsWith(from + sep) ? to + f.slice(from.length) : f))
     state.favorites = state.favorites.map((f) => (f === from ? to : f))
-    if (state.lastFile === from) state.lastFile = to
+    for (const c of windows.values()) if (c.session.lastFile === from) c.session.lastFile = to
     persistState()
-    await workspace?.refresh()
+    broadcastShared()
+    await Promise.all([refresh(from), refresh(to)])
     return to
   })
   ipcMain.handle('fs:duplicate', async (_e, p: string) => {
     const ext = extname(p)
     const target = unique(dirname(p), basename(p, ext) + ' copy', ext)
     await fsp.copyFile(p, target)
-    await workspace?.refresh()
+    await refresh(target)
     return target
   })
-  ipcMain.handle('fs:confirmTrash', async (_e, p: string) => {
+  ipcMain.handle('fs:confirmTrash', async (e, p: string) => {
     const isDir = existsSync(p) && statSync(p).isDirectory()
-    const r = await dialog.showMessageBox(win!, {
+    const r = await dialog.showMessageBox(ctxOf(e).win, {
       type: 'warning',
       buttons: ['Move to Trash', 'Cancel'],
       defaultId: 1,
@@ -337,7 +467,7 @@ function registerIpc() {
   })
   ipcMain.handle('fs:trash', async (_e, p: string) => {
     await shell.trashItem(p)
-    await workspace?.refresh()
+    await refresh(p)
     return true
   })
   ipcMain.handle('fs:saveAsset', async (_e, docPath: string, data: ArrayBuffer, ext: string) => {
@@ -352,6 +482,7 @@ function registerIpc() {
   })
 
   ipcMain.on('window:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
+  ipcMain.on('window:new', () => void createWindow())
   ipcMain.handle('shell:reveal', (_e, p: string) => shell.showItemInFolder(p))
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url))
   ipcMain.handle('shell:openPath', (_e, p: string) => shell.openPath(p))
@@ -378,7 +509,7 @@ function registerIpc() {
 // Finder "Open With", `open -a Motion file.md`, dock drops
 app.on('open-file', (e, p) => {
   e.preventDefault()
-  if (app.isReady() && win) void openPath(p)
+  if (app.isReady() && live().length) void openPath(p)
   else pendingOpen = p
 })
 
@@ -388,11 +519,11 @@ if (!gotLock) {
 } else {
   app.on('second-instance', (_e, argv) => {
     const p = argv.slice(1).find((a) => !a.startsWith('-') && existsSync(a) && a !== process.execPath)
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.focus()
-    }
     if (p) void openPath(p)
+    else {
+      const last = live().at(-1)
+      if (last) focus(last)
+    }
   })
 
   app.whenReady().then(async () => {
@@ -409,29 +540,26 @@ if (!gotLock) {
       .slice(app.isPackaged ? 1 : 2)
       .find((a) => !a.startsWith('-') && existsSync(a))
     const initial = pendingOpen ?? argPath ?? null
-    if (initial) {
-      const abs = resolve(initial)
-      if (statSync(abs).isDirectory()) await setRoot(abs)
-      else {
-        if (!state.root || !abs.startsWith(state.root + sep)) await setRoot(rootFor(abs))
-        state.lastFile = abs
-      }
-    } else if (state.root && existsSync(state.root)) {
-      await setRoot(state.root)
-    } else {
-      state.root = null
-    }
-    createWindow()
     pendingOpen = null
 
+    // reopen every window from last time, then route anything opened at launch
+    const sessions = (state.windows ?? []).filter((s) => s.root && existsSync(s.root))
+    state.windows = undefined
+    for (const s of sessions) await createWindow(s)
+    if (initial) await openPath(initial)
+    if (!live().length) await createWindow()
+
     app.on('activate', () => {
-      if (!win) createWindow()
+      if (!live().length) void createWindow()
     })
   })
 
+  app.on('before-quit', () => {
+    quitting = true
+  })
+
   app.on('window-all-closed', () => {
-    workspace?.dispose()
+    persistNow()
     app.quit()
   })
 }
-

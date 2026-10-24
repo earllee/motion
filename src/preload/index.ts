@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { MotionApi, FsChange, MenuCommand } from '@shared/types'
+import type { AppState, MotionApi, FsChange, MenuCommand } from '@shared/types'
 
 const on = <T>(channel: string, cb: (payload: T) => void) => {
   const handler = (_e: unknown, payload: T) => cb(payload)
@@ -36,6 +36,8 @@ const api: MotionApi = {
   onFsChange: (cb) => on<FsChange>('fs:change', cb),
   onMenu: (cb) => on<MenuCommand>('menu', cb),
   onOpenPath: (cb) => on<string>('app:open-path', cb),
+  onSharedState: (cb) => on<Partial<AppState>>('app:shared-state', cb),
+  newWindow: () => ipcRenderer.send('window:new'),
   onFullscreen: (cb) => on<boolean>('window:fullscreen', cb),
   closeWindow: () => ipcRenderer.send('window:close'),
   platform: process.platform

@@ -50,6 +50,8 @@ open -a Motion ~/Developer/claudepm # folder: opens it as the workspace
 bin/motion path/to/plan.md          # same, and creates the file if it doesn't exist
 ```
 
+Each window is one folder. A file goes to the window that already has its folder open, or gets a new window, and every window reopens next launch.
+
 ## How it maps to markdown
 
 | Notion block | Markdown on disk |
@@ -82,6 +84,7 @@ Every `.md` in the test corpus round-trips unchanged (`npm test`).
 | `⌘B` `⌘I` `⌘⇧S` `⌘E` | Bold, italic, strikethrough, inline code |
 | `⌘P` | Search pages and text |
 | `⌘N` | New page (named from its title once you leave the title) |
+| `⌘⇧N` | New window, to work in another folder side by side |
 | `⌘F` | Find in page |
 | `⌘/` | Toggle raw markdown source |
 | `⌘\` | Toggle sidebar |
