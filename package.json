@@ -15,6 +15,7 @@
     "package": "electron-vite build && electron-builder --mac --dir && codesign --force --deep --sign - release/mac-arm64/Motion.app",
     "dist": "electron-vite build && electron-builder --mac",
     "e2e": "electron-vite build && node scripts/e2e.mjs",
+    "media": "electron-vite build && node scripts/demo.mjs && node scripts/social-card.mjs",
     "icon": "sh scripts/build-icon.sh"
   },
   "devDependencies": {

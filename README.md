@@ -2,6 +2,8 @@
 
 A Notion-like Markdown editor for macOS run fully local.
 
+![Motion: typing a callout, an agent checking off to-dos on disk, then the plain Markdown underneath](docs/media/demo.gif)
+
 ## Why
 
 More and more working docs (plans, specs, notes, CLAUDE.md) are Markdown files in a git repo, written together with AI coding agents. The tools for reading and editing them make you choose: Notion has the best editing feel but keeps your docs in its own database, while VS Code and Obsidian work on the real files but feel like editing source.
