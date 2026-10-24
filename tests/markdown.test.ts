@@ -7,7 +7,8 @@ import { parseMarkdown } from '@/editor/markdown/parse'
 import { serializeMarkdown } from '@/editor/markdown/serialize'
 
 const schema = getSchema(baseExtensions())
-const ROOT = process.env.MD_ROOT || join(__dirname, '../../..')
+// defaults to the bundled corpus; set MD_ROOT to round-trip a real repo instead
+const ROOT = process.env.MD_ROOT || join(__dirname, 'fixtures')
 const SKIP = new Set(['node_modules', '.git', 'out', 'release', 'dist'])
 
 function walk(dir: string, out: string[] = []): string[] {
