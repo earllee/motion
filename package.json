@@ -6,6 +6,12 @@
   "main": "./out/main/index.js",
   "author": "Earl Lee",
   "license": "MIT",
+  "homepage": "https://github.com/earllee/motion",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/earllee/motion.git"
+  },
+  "bugs": "https://github.com/earllee/motion/issues",
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",
