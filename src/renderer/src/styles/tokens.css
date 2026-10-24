@@ -1,0 +1,152 @@
+/* Notion design tokens */
+:root {
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Display', 'Segoe UI', Helvetica,
+    'Apple Color Emoji', Arial, sans-serif, 'Segoe UI Emoji', 'Segoe UI Symbol';
+  --font-serif: Lyon-Text, Georgia, ui-serif, serif;
+  --font-mono-page: iawriter-mono, Nitti, Menlo, Courier, monospace;
+  --font-code: 'SFMono-Regular', Menlo, Consolas, 'PT Mono', 'Liberation Mono', Courier, monospace;
+
+  --bg: #ffffff;
+  --text: rgb(55, 53, 47);
+  --text-strong: rgb(55, 53, 47);
+  --text-2: rgba(55, 53, 47, 0.65);
+  --text-3: rgba(55, 53, 47, 0.45);
+  --placeholder: rgba(55, 53, 47, 0.38);
+  --title-placeholder: rgba(55, 53, 47, 0.2);
+  --icon: rgba(55, 53, 47, 0.45);
+  --icon-strong: rgba(55, 53, 47, 0.85);
+  --border: rgba(55, 53, 47, 0.09);
+  --divider: rgba(55, 53, 47, 0.16);
+  --hover: rgba(55, 53, 47, 0.08);
+  --active: rgba(55, 53, 47, 0.16);
+  --blue: rgb(35, 131, 226);
+  --blue-hover: rgb(0, 117, 211);
+  --selection: rgba(35, 131, 226, 0.28);
+  --block-selection: rgba(35, 131, 226, 0.14);
+  --focus-ring: rgba(35, 131, 226, 0.57);
+  --red: rgb(235, 87, 87);
+
+  --sidebar-bg: rgb(247, 247, 245);
+  --sidebar-text: rgba(25, 23, 17, 0.6);
+  --sidebar-text-strong: rgb(50, 48, 44);
+  --sidebar-hover: rgba(0, 0, 0, 0.04);
+  --sidebar-selected: rgba(0, 0, 0, 0.055);
+  --sidebar-edge: rgba(0, 0, 0, 0.024);
+
+  --code-bg: rgb(247, 246, 243);
+  --inline-code: #eb5757;
+  --inline-code-bg: rgba(135, 131, 120, 0.15);
+  --table-border: rgb(233, 233, 231);
+  --table-header-bg: rgb(247, 246, 243);
+  --checkbox-border: rgba(55, 53, 47, 0.85);
+
+  --menu-bg: #ffffff;
+  --menu-shadow: rgba(15, 15, 15, 0.05) 0 0 0 1px, rgba(15, 15, 15, 0.1) 0 3px 6px, rgba(15, 15, 15, 0.2) 0 9px 24px;
+  --modal-overlay: rgba(15, 15, 15, 0.6);
+  --tooltip-bg: rgb(15, 15, 15);
+  --input-bg: rgba(242, 241, 238, 0.6);
+  --input-border: rgba(15, 15, 15, 0.1);
+
+  --c-gray-bg: rgb(241, 241, 239);
+  --c-brown-bg: rgb(244, 238, 238);
+  --c-orange-bg: rgb(251, 236, 221);
+  --c-yellow-bg: rgb(251, 243, 219);
+  --c-green-bg: rgb(237, 243, 236);
+  --c-blue-bg: rgb(231, 243, 248);
+  --c-purple-bg: rgba(244, 240, 247, 0.8);
+  --c-pink-bg: rgba(249, 238, 243, 0.8);
+  --c-red-bg: rgb(253, 235, 236);
+
+  --c-gray: rgb(120, 119, 116);
+  --c-brown: rgb(159, 107, 83);
+  --c-orange: rgb(217, 115, 13);
+  --c-yellow: rgb(203, 145, 47);
+  --c-green: rgb(68, 131, 97);
+  --c-blue: rgb(51, 126, 169);
+  --c-purple: rgb(144, 101, 176);
+  --c-pink: rgb(193, 76, 138);
+  --c-red: rgb(212, 76, 71);
+
+  /* Prism default, which is what Notion's code blocks use */
+  --syn-comment: slategray;
+  --syn-punct: #999;
+  --syn-prop: #905;
+  --syn-string: #690;
+  --syn-operator: #9a6e3a;
+  --syn-keyword: #07a;
+  --syn-func: #dd4a68;
+  --syn-var: #e90;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: rgb(25, 25, 25);
+    --text: rgba(255, 255, 255, 0.81);
+    --text-strong: rgba(255, 255, 255, 0.9);
+    --text-2: rgba(255, 255, 255, 0.46);
+    --text-3: rgba(255, 255, 255, 0.32);
+    --placeholder: rgba(255, 255, 255, 0.28);
+    --title-placeholder: rgba(255, 255, 255, 0.15);
+    --icon: rgba(255, 255, 255, 0.36);
+    --icon-strong: rgba(255, 255, 255, 0.81);
+    --border: rgba(255, 255, 255, 0.094);
+    --divider: rgba(255, 255, 255, 0.13);
+    --hover: rgba(255, 255, 255, 0.055);
+    --active: rgba(255, 255, 255, 0.1);
+    --selection: rgba(35, 131, 226, 0.4);
+    --block-selection: rgba(35, 131, 226, 0.22);
+
+    --sidebar-bg: rgb(32, 32, 32);
+    --sidebar-text: rgba(255, 255, 255, 0.46);
+    --sidebar-text-strong: rgba(255, 255, 255, 0.81);
+    --sidebar-hover: rgba(255, 255, 255, 0.055);
+    --sidebar-selected: rgba(255, 255, 255, 0.07);
+    --sidebar-edge: rgba(255, 255, 255, 0.05);
+
+    --code-bg: rgb(32, 32, 32);
+    --inline-code: #ff7369;
+    --inline-code-bg: rgba(135, 131, 120, 0.15);
+    --table-border: rgba(255, 255, 255, 0.094);
+    --table-header-bg: rgb(32, 32, 32);
+    --checkbox-border: rgba(255, 255, 255, 0.6);
+
+    --menu-bg: rgb(37, 37, 37);
+    --menu-shadow: rgba(15, 15, 15, 0.1) 0 0 0 1px, rgba(15, 15, 15, 0.2) 0 3px 6px, rgba(15, 15, 15, 0.4) 0 9px 24px;
+    --modal-overlay: rgba(15, 15, 15, 0.8);
+    --input-bg: rgba(255, 255, 255, 0.055);
+    --input-border: rgba(255, 255, 255, 0.094);
+
+    --c-gray-bg: rgb(47, 47, 47);
+    --c-brown-bg: rgb(74, 50, 40);
+    --c-orange-bg: rgb(92, 59, 35);
+    --c-yellow-bg: rgb(86, 67, 40);
+    --c-green-bg: rgb(36, 61, 48);
+    --c-blue-bg: rgb(20, 58, 78);
+    --c-purple-bg: rgb(60, 45, 73);
+    --c-pink-bg: rgb(78, 44, 60);
+    --c-red-bg: rgb(82, 46, 42);
+
+    --c-gray: rgb(155, 155, 155);
+    --c-brown: rgb(186, 133, 111);
+    --c-orange: rgb(199, 125, 72);
+    --c-yellow: rgb(202, 152, 73);
+    --c-green: rgb(82, 158, 114);
+    --c-blue: rgb(55, 154, 211);
+    --c-purple: rgb(157, 104, 211);
+    --c-pink: rgb(209, 87, 150);
+    --c-red: rgb(230, 91, 80);
+
+    --syn-comment: #8b949e;
+    --syn-punct: #a0a0a0;
+    --syn-prop: #f8c555;
+    --syn-string: #7ec699;
+    --syn-operator: #67cdcc;
+    --syn-keyword: #cc99cd;
+    --syn-func: #f08d49;
+    --syn-var: #e2777a;
+
+    color-scheme: dark;
+  }
+}

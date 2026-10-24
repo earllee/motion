@@ -1,0 +1,14 @@
+#!/bin/sh
+# Open markdown files or folders in Motion.  usage: motion [path ...]
+if [ $# -eq 0 ]; then
+  open -b com.earllee.motion
+  exit 0
+fi
+for p in "$@"; do
+  if [ ! -e "$p" ]; then
+    # create missing .md files so `motion notes/new-plan.md` works like `code new.md`
+    case "$p" in *.md|*.markdown) mkdir -p "$(dirname "$p")" && : > "$p" ;; *) echo "motion: $p not found" >&2; exit 1 ;; esac
+  fi
+  abs="$(cd "$(dirname "$p")" && pwd)/$(basename "$p")"
+  open -b com.earllee.motion "$abs"
+done

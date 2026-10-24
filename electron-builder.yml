@@ -1,0 +1,45 @@
+appId: com.earllee.motion
+productName: Motion
+copyright: Earl Lee
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+asar: true
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  target:
+    - target: dir
+      arch: [arm64]
+  identity: null
+  hardenedRuntime: false
+  extendInfo:
+    NSHighResolutionCapable: true
+    # the documents Motion opens; .sql has no system type, so Motion declares one
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: Markdown Document
+        CFBundleTypeRole: Editor
+        LSHandlerRank: Owner
+        CFBundleTypeIconFile: icon.icns
+        LSItemContentTypes: [net.daringfireball.markdown, io.typora.markdown, com.earllee.motion.mdx]
+        CFBundleTypeExtensions: [md, markdown, mdx]
+      - CFBundleTypeName: SQL Query
+        CFBundleTypeRole: Editor
+        LSHandlerRank: Owner
+        CFBundleTypeIconFile: icon.icns
+        LSItemContentTypes: [com.earllee.motion.sql]
+        CFBundleTypeExtensions: [sql]
+    UTImportedTypeDeclarations:
+      - UTTypeIdentifier: com.earllee.motion.sql
+        UTTypeDescription: SQL Query
+        UTTypeConformsTo: [public.plain-text, public.source-code]
+        UTTypeTagSpecification:
+          public.filename-extension: [sql]
+      - UTTypeIdentifier: com.earllee.motion.mdx
+        UTTypeDescription: MDX Document
+        UTTypeConformsTo: [public.plain-text]
+        UTTypeTagSpecification:
+          public.filename-extension: [mdx]
