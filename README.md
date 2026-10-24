@@ -29,7 +29,7 @@ Electron + React + TipTap (ProseMirror). A custom markdown-it parser records eac
 
 ```sh
 npm install
-npm run dev          # hot-reloading dev build
+npm run dev          # hot-reloading dev build (first run downloads Electron, ~100 MB)
 npm run package      # → release/mac-arm64/Motion.app (ad-hoc signed)
 ```
 
@@ -55,7 +55,7 @@ bin/motion path/to/plan.md          # same, and creates the file if it doesn't e
 | Mermaid | ` ```mermaid ` code block, rendered as a diagram |
 | Anything else (HTML blocks, reference definitions, …) | Kept verbatim as a raw block |
 
-Every `.md` in this repo round-trips unchanged (`npm test`).
+Every `.md` in the test corpus round-trips unchanged (`npm test`).
 
 ## Keyboard
 
@@ -83,7 +83,7 @@ Hover any block for the `+` and `⋮⋮` handles: drag to reorder, click for Tur
 ## Tests
 
 ```sh
-npm test       # markdown round-trip over every .md in the parent repo
+npm test       # markdown round-trip over tests/fixtures (MD_ROOT=path to use another folder)
 npm run e2e    # drives the built app with Playwright against a throwaway folder
 ```
 
@@ -93,3 +93,7 @@ npm run e2e    # drives the built app with Playwright against a throwaway folder
 - `src/renderer/src/editor/markdown` — markdown ↔ ProseMirror (`parse.ts`, `serialize.ts`)
 - `src/renderer/src/editor` — TipTap schema, Notion behaviors (keys, slash menu, drag handle, toolbar, tables, outline)
 - `src/renderer/src/components` — sidebar, top bar, page view (load/save/reload), search, properties
+
+## License
+
+[MIT](LICENSE)

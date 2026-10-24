@@ -5,6 +5,7 @@
   "description": "A Notion-style block editor for local Markdown files",
   "main": "./out/main/index.js",
   "author": "Earl Lee",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",
