@@ -293,6 +293,8 @@ async function createWindow(session: WindowSession = emptySession()): Promise<Wi
 }
 
 function menuCommand(cmd: MenuCommand) {
+  // ⌘⇧L flips whatever is showing, so pressing it again always undoes it
+  if (cmd === 'toggle-dark') cmd = nativeTheme.shouldUseDarkColors ? 'theme-light' : 'theme-dark'
   if (cmd === 'new-window') {
     void createWindow()
     return

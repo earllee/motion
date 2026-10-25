@@ -109,6 +109,7 @@ export type MenuCommand =
   | 'theme-system'
   | 'theme-light'
   | 'theme-dark'
+  | 'toggle-dark'
   | 'back'
   | 'forward'
   | 'reveal'

@@ -34,7 +34,11 @@ Electron + React + TipTap (ProseMirror). A custom markdown-it parser records eac
 - **Database view from frontmatter.** A simple filterable table or list of the pages in a folder.
 - **Stay local-first.** No account, no network, works offline. Sync is git's job.
 
-## Run it
+## Download
+
+[Download the latest release](https://github.com/earllee/motion/releases/latest) for macOS 13 or later: `arm64` for Apple Silicon, `x64` for Intel. Open the DMG and drag Motion to Applications. It's signed and notarized, so it opens without warnings.
+
+## Build from source
 
 ```sh
 npm install
@@ -88,6 +92,7 @@ Every `.md` in the test corpus round-trips unchanged (`npm test`).
 | `⌘F` | Find in page |
 | `⌘/` | Toggle raw markdown source |
 | `⌘\` | Toggle sidebar |
+| `⌘⇧L` | Toggle dark mode |
 | `⌘[` / `⌘]` | Back / forward |
 
 Hover any block for the `+` and `⋮⋮` handles: drag to reorder, click for Turn into / Duplicate / Move / Copy as Markdown / Delete.

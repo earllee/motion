@@ -88,7 +88,13 @@ export function buildMenu(run: (cmd: MenuCommand) => void): Menu {
         },
         {
           label: 'Appearance',
-          submenu: [cmd('Use System Setting', 'theme-system'), cmd('Light', 'theme-light'), cmd('Dark', 'theme-dark', 'CmdOrCtrl+Shift+L')]
+          submenu: [
+            cmd('Use System Setting', 'theme-system'),
+            cmd('Light', 'theme-light'),
+            cmd('Dark', 'theme-dark'),
+            { type: 'separator' },
+            cmd('Toggle Dark Mode', 'toggle-dark', 'CmdOrCtrl+Shift+L')
+          ]
         },
         { type: 'separator' },
         { role: 'resetZoom' },
