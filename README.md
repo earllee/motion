@@ -1,6 +1,6 @@
 # Motion
 
-A Notion-like Markdown editor for macOS run fully local.
+A Notion-style Markdown editor run fully locally. Built for collaborating with agent-first knowledge bases and repos. View and edit plans, specs, and more within a block-based editor.
 
 ![Motion: typing a callout, an agent checking off to-dos on disk, then the plain Markdown underneath](docs/media/demo.gif)
 

@@ -2,7 +2,7 @@
   "name": "motion",
   "productName": "Motion",
   "version": "0.1.0",
-  "description": "A Notion-style block editor for local Markdown files",
+  "description": "A Notion-style Markdown editor run fully locally, for agent-first knowledge bases and repos",
   "main": "./out/main/index.js",
   "author": "Earl Lee",
   "license": "MIT",
