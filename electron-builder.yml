@@ -9,13 +9,15 @@ files:
   - package.json
 asar: true
 mac:
+  artifactName: ${productName}-${version}-${arch}.${ext}
   category: public.app-category.productivity
   icon: build/icon.icns
   target:
     - target: dir
       arch: [arm64]
+  # unsigned for `npm run package`; scripts/release.sh signs with a Developer ID and notarizes
   identity: null
-  hardenedRuntime: false
+  hardenedRuntime: true
   extendInfo:
     NSHighResolutionCapable: true
     # the documents Motion opens; .sql has no system type, so Motion declares one
