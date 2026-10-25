@@ -1,4 +1,4 @@
-appId: com.earllee.motion
+appId: com.earlleeventures.motion
 productName: Motion
 copyright: Earl Lee
 directories:
@@ -24,21 +24,21 @@ mac:
         CFBundleTypeRole: Editor
         LSHandlerRank: Owner
         CFBundleTypeIconFile: icon.icns
-        LSItemContentTypes: [net.daringfireball.markdown, io.typora.markdown, com.earllee.motion.mdx]
+        LSItemContentTypes: [net.daringfireball.markdown, io.typora.markdown, com.earlleeventures.motion.mdx]
         CFBundleTypeExtensions: [md, markdown, mdx]
       - CFBundleTypeName: SQL Query
         CFBundleTypeRole: Editor
         LSHandlerRank: Owner
         CFBundleTypeIconFile: icon.icns
-        LSItemContentTypes: [com.earllee.motion.sql]
+        LSItemContentTypes: [com.earlleeventures.motion.sql]
         CFBundleTypeExtensions: [sql]
     UTImportedTypeDeclarations:
-      - UTTypeIdentifier: com.earllee.motion.sql
+      - UTTypeIdentifier: com.earlleeventures.motion.sql
         UTTypeDescription: SQL Query
         UTTypeConformsTo: [public.plain-text, public.source-code]
         UTTypeTagSpecification:
           public.filename-extension: [sql]
-      - UTTypeIdentifier: com.earllee.motion.mdx
+      - UTTypeIdentifier: com.earlleeventures.motion.mdx
         UTTypeDescription: MDX Document
         UTTypeConformsTo: [public.plain-text]
         UTTypeTagSpecification:
