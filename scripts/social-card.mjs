@@ -31,11 +31,11 @@ const html = `<!doctype html><html><head><style>
 </style></head><body>
   <div class="copy">
     <div class="brand"><img src="${icon}"><h1>Motion</h1></div>
-    <p class="tag">Notion-style editing for the Markdown files in your repo.</p>
+    <p class="tag">A Notion-style Markdown editor,<br>run fully locally.</p>
     <ul>
-      <li>Plain .md files stay the source of truth</li>
-      <li>Untouched text is never rewritten</li>
-      <li>Agent edits show up live</li>
+      <li>Built for agent-first knowledge bases and repos</li>
+      <li>View and edit plans, specs, and more</li>
+      <li>A block-based editor on plain .md files</li>
     </ul>
   </div>
   <div class="shot"><img src="${shot}"></div>
