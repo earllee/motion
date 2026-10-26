@@ -20,3 +20,4 @@ for dmg in release/*.dmg; do
   xcrun notarytool submit "$dmg" --keychain-profile "$APPLE_KEYCHAIN_PROFILE" --wait
   xcrun stapler staple "$dmg"
 done
+node scripts/update-feed.mjs release
