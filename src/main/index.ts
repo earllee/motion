@@ -19,6 +19,7 @@ import { pathToFileURL } from 'url'
 import { WINDOW_KEYS, type AppState, type FsChange, type MenuCommand, type Prefs, type WindowState, type WriteOptions, type WriteResult } from '@shared/types'
 import { Workspace } from './workspace'
 import { buildMenu } from './menu'
+import { checkForUpdates, initUpdater, installUpdate, updateReady } from './updater'
 
 const DEFAULT_PREFS: Prefs = {
   theme: 'system',
@@ -28,7 +29,8 @@ const DEFAULT_PREFS: Prefs = {
   sidebarOpen: true,
   sidebarWidth: 248,
   spellcheck: true,
-  showAllFiles: true
+  showAllFiles: true,
+  showIgnored: false
 }
 
 const DEFAULT_STATE: AppState = {
@@ -87,7 +89,8 @@ interface WindowCtx {
 }
 const windows = new Map<number, WindowCtx>()
 let quitting = false
-let pendingOpen: string | null = null
+/** files opened before the app was ready (Finder sends them as open-file events at launch) */
+const pendingOpen: string[] = []
 
 const live = () => [...windows.values()].filter((c) => !c.win.isDestroyed())
 
@@ -155,8 +158,9 @@ async function setRoot(ctx: WindowCtx, root: string | null) {
   ctx.session.root = root
   if (root) {
     state.recentRoots = [root, ...state.recentRoots.filter((r) => r !== root)].slice(0, 10)
-    ctx.workspace = new Workspace(root, (change: FsChange) => send(ctx, 'fs:change', change))
+    ctx.workspace = new Workspace(root, (change: FsChange) => send(ctx, 'fs:change', change), () => state.prefs.showIgnored)
     await ctx.workspace.init()
+    for (const p of [ctx.session.lastFile, ...ctx.session.tabs]) if (p && within(p, root)) await ctx.workspace.include(p)
     app.addRecentDocument(root)
     broadcastShared(ctx)
   }
@@ -191,6 +195,7 @@ async function openPath(p: string, from?: WindowCtx) {
     .filter((c) => c.session.root && (isDir ? c.session.root === abs : within(abs, c.session.root)))
     .sort((a, b) => b.session.root!.length - a.session.root!.length)[0] // nested workspaces: the closest wins
   if (owner) {
+    if (!isDir) await owner.workspace?.include(abs)
     focus(owner)
     send(owner, 'app:open-path', abs)
     return
@@ -199,7 +204,10 @@ async function openPath(p: string, from?: WindowCtx) {
   const empty = from && !from.session.root ? from : live().find((c) => !c.session.root)
   if (empty) {
     await setRoot(empty, root)
-    if (!isDir) empty.session.lastFile = abs
+    if (!isDir) {
+      empty.session.lastFile = abs
+      await empty.workspace?.include(abs)
+    }
     focus(empty)
     send(empty, 'app:open-path', abs)
     return
@@ -272,6 +280,23 @@ async function createWindow(session: WindowSession = emptySession()): Promise<Wi
     if (!quitting && live().length > 0) windows.delete(ctx.id)
     persistNow()
   })
+  // the renderer blocks closing while a page has suggestions; closing accepts them
+  win.webContents.on('will-prevent-unload', (e) => {
+    const r = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      message: 'Accept all suggestions?',
+      detail: 'Closing the window accepts the outside edits shown as suggestions. They stay in the files either way.',
+      buttons: ['Accept All and Close', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1
+    })
+    if (r === 0) e.preventDefault()
+    else quitting = false
+  })
+  win.webContents.on('did-finish-load', () => {
+    const version = updateReady()
+    if (version) send(ctx, 'app:update-ready', version)
+  })
   win.on('enter-full-screen', () => send(ctx, 'window:fullscreen', true))
   win.on('leave-full-screen', () => send(ctx, 'window:fullscreen', false))
 
@@ -299,6 +324,10 @@ function menuCommand(cmd: MenuCommand) {
     void createWindow()
     return
   }
+  if (cmd === 'check-updates') {
+    checkForUpdates()
+    return
+  }
   if (cmd === 'theme-system' || cmd === 'theme-light' || cmd === 'theme-dark') {
     const theme = cmd.slice(6) as Prefs['theme']
     state.prefs = { ...state.prefs, theme }
@@ -322,8 +351,10 @@ function registerIpc() {
     }
     ctx.session = { ...ctx.session, ...own }
     if (Object.keys(shared).length) {
+      const showedIgnored = state.prefs.showIgnored
       state = { ...state, ...shared, prefs: { ...state.prefs, ...(shared.prefs || {}) } }
       if (shared.prefs?.theme) nativeTheme.themeSource = shared.prefs.theme
+      if (state.prefs.showIgnored !== showedIgnored) for (const c of live()) void c.workspace?.rescan()
       broadcastShared(ctx)
     }
     persistState()
@@ -356,6 +387,7 @@ function registerIpc() {
 
   ipcMain.handle('fs:read', async (_e, p: string) => {
     const [content, st] = await Promise.all([fsp.readFile(p, 'utf8'), fsp.stat(p)])
+    for (const w of workspacesFor(p)) void w.include(p)
     return { content, mtime: st.mtimeMs }
   })
   ipcMain.handle('fs:exists', (_e, p: string) => existsSync(p))
@@ -483,8 +515,14 @@ function registerIpc() {
     return `assets/${name}`
   })
 
+  ipcMain.handle('dialog:confirm', async (e, message: string, detail: string, ok: string) => {
+    const r = await dialog.showMessageBox(ctxOf(e).win, { type: 'warning', message, detail, buttons: [ok, 'Cancel'], defaultId: 0, cancelId: 1 })
+    return r.response === 0
+  })
+
   ipcMain.on('window:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
   ipcMain.on('window:new', () => void createWindow())
+  ipcMain.on('app:install-update', () => installUpdate())
   ipcMain.handle('shell:reveal', (_e, p: string) => shell.showItemInFolder(p))
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url))
   ipcMain.handle('shell:openPath', (_e, p: string) => shell.openPath(p))
@@ -512,16 +550,18 @@ function registerIpc() {
 app.on('open-file', (e, p) => {
   e.preventDefault()
   if (app.isReady() && live().length) void openPath(p)
-  else pendingOpen = p
+  else pendingOpen.push(p)
 })
 
-const gotLock = app.requestSingleInstanceLock()
-if (!gotLock) {
-  app.quit()
-} else {
-  app.on('second-instance', (_e, argv) => {
-    const p = argv.slice(1).find((a) => !a.startsWith('-') && existsSync(a) && a !== process.execPath)
-    if (p) void openPath(p)
+const argPaths = () =>
+  process.argv.slice(app.isPackaged ? 1 : 2).filter((a) => !a.startsWith('-') && existsSync(a) && a !== process.execPath)
+
+{
+  // a second launch hands its files to the running instance, then quits
+  app.on('second-instance', (_e, argv, _cwd, data) => {
+    const sent = (data as { open?: string[] } | null)?.open ?? []
+    const paths = sent.length ? sent : argv.slice(1).filter((a) => !a.startsWith('-') && existsSync(a) && a !== process.execPath)
+    if (paths.length) for (const p of paths) void openPath(p)
     else {
       const last = live().at(-1)
       if (last) focus(last)
@@ -529,6 +569,12 @@ if (!gotLock) {
   })
 
   app.whenReady().then(async () => {
+    // the lock is taken only now: a launch from Finder gets its file as an open-file
+    // event before ready, and must pass it along rather than quit without it
+    if (!app.requestSingleInstanceLock({ open: [...pendingOpen, ...argPaths()] })) {
+      app.quit()
+      return
+    }
     nativeTheme.themeSource = state.prefs.theme
     protocol.handle('motion-asset', (req) => {
       const url = new URL(req.url)
@@ -538,18 +584,18 @@ if (!gotLock) {
     registerIpc()
     Menu.setApplicationMenu(buildMenu(menuCommand))
 
-    const argPath = process.argv
-      .slice(app.isPackaged ? 1 : 2)
-      .find((a) => !a.startsWith('-') && existsSync(a))
-    const initial = pendingOpen ?? argPath ?? null
-    pendingOpen = null
+    const initial = [...pendingOpen, ...argPaths()]
+    pendingOpen.length = 0
 
     // reopen every window from last time, then route anything opened at launch
     const sessions = (state.windows ?? []).filter((s) => s.root && existsSync(s.root))
     state.windows = undefined
     for (const s of sessions) await createWindow(s)
-    if (initial) await openPath(initial)
+    for (const p of initial) await openPath(p)
     if (!live().length) await createWindow()
+    initUpdater((version) => {
+      for (const c of live()) send(c, 'app:update-ready', version)
+    })
 
     app.on('activate', () => {
       if (!live().length) void createWindow()

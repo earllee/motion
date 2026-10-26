@@ -10,6 +10,8 @@ export interface FileEntry {
   title: string | null
   /** the current version on disk was written by Motion */
   byMotion?: boolean
+  /** gitignored (listed only when showing ignored files) */
+  ignored?: boolean
 }
 
 export interface IndexSnapshot {
@@ -33,6 +35,8 @@ export interface Prefs {
   spellcheck: boolean
   /** list non-markdown text files in the sidebar */
   showAllFiles: boolean
+  /** list gitignored files in the sidebar and search */
+  showIgnored: boolean
 }
 
 export interface AppState {
@@ -96,6 +100,7 @@ export interface ReadResult {
 export type MenuCommand =
   | 'new-page'
   | 'new-window'
+  | 'check-updates'
   | 'open-folder'
   | 'open-file'
   | 'search'
@@ -147,12 +152,17 @@ export interface MotionApi {
   openPath(path: string): Promise<void>
   copyText(text: string): Promise<void>
   showContextMenu(items: { id: string; label: string; enabled?: boolean; type?: 'separator' }[]): Promise<string | null>
+  /** ask before doing something; resolves true if the user picked `ok` */
+  confirm(message: string, detail: string, ok: string): Promise<boolean>
   onFsChange(cb: (change: FsChange) => void): () => void
   onMenu(cb: (cmd: MenuCommand) => void): () => void
   onOpenPath(cb: (path: string) => void): () => void
   /** shared state changed in another window */
   onSharedState(cb: (shared: Partial<AppState>) => void): () => void
   newWindow(): void
+  /** an update was downloaded; it installs on quit, or now via installUpdate() */
+  onUpdateReady(cb: (version: string) => void): () => void
+  installUpdate(): void
   onFullscreen(cb: (on: boolean) => void): () => void
   closeWindow(): void
   platform: string

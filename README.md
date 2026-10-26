@@ -21,6 +21,7 @@ Two things set it apart from other Markdown editors:
 - **Real Markdown out.** Every block maps to standard GFM (callouts → `> [!NOTE]`, toggles → `<details>`, properties → YAML frontmatter). Anything Motion doesn't understand is kept verbatim.
 - **Clean diffs.** Blocks you didn't touch are written back byte-for-byte, so a one-word edit is a one-line git diff, and opening a file never rewrites it.
 - **Safe co-editing with agents.** Changes from Claude Code, git or anything else show up live. Saves are compare-and-swap, so a conflicting edit pauses autosave and asks you which version to keep; nothing is overwritten silently.
+- **Agent edits as suggestions.** When a page you have open changes on disk, the edits show inline the way Notion shows suggestions: added text in blue, deleted text greyed out, with a card in the margin for each one. Accept or reject them one by one or all at once. Suggestions only cover edits made while the page is open, and closing it accepts them.
 - **The rest of the repo.** `.sql`, `.json`, `.txt`, `.csv` and `.mdx` files open in a code view. Recently edited lists files changed anywhere in the folder, and a dot marks pages edited outside Motion.
 
 ## How it works
@@ -29,14 +30,13 @@ Electron + React + TipTap (ProseMirror). A custom markdown-it parser records eac
 
 ## What's next
 
-- **Review agent edits.** What changed on disk since you last looked, and who changed it (you, an agent, git).
 - **Read mode.** Open docs read-only so reviewing an agent's plan can't change it.
 - **Database view from frontmatter.** A simple filterable table or list of the pages in a folder.
 - **Stay local-first.** No account, no network, works offline. Sync is git's job.
 
 ## Download
 
-[Download the latest release](https://github.com/earllee/motion/releases/latest) for macOS 13 or later: `arm64` for Apple Silicon, `x64` for Intel. Open the DMG and drag Motion to Applications. It's signed and notarized, so it opens without warnings.
+[Download the latest release](https://github.com/earllee/motion/releases/latest) for macOS 13 or later: `arm64` for Apple Silicon, `x64` for Intel. Open the DMG and drag Motion to Applications. It's signed and notarized, so it opens without warnings, and it updates itself from new releases (from 0.1.2 on).
 
 ## Build from source
 

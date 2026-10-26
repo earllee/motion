@@ -763,3 +763,166 @@ body.block-dragging .ProseMirror .block-selected {
 body.block-dragging .block-handle {
   opacity: 0 !important;
 }
+
+/* ---- suggestions: outside edits made while the page is open, styled like Notion's */
+.ProseMirror .suggest-ins,
+.ProseMirror .suggest-ins-node {
+  color: var(--blue);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--blue) 40%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.ProseMirror .suggest-ins-node :is(li, p, h1, h2, h3, code, a) {
+  color: inherit;
+}
+.ProseMirror .suggest-ins-node img {
+  outline: 2px solid color-mix(in srgb, var(--blue) 45%, transparent);
+}
+.ProseMirror .suggest-del,
+.ProseMirror .suggest-del-block {
+  color: var(--text-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-3);
+  user-select: none;
+}
+.ProseMirror .suggest-del-block {
+  pointer-events: none;
+}
+.ProseMirror .suggest-del-block > * {
+  margin: 2px 0;
+}
+.ProseMirror .suggest-del-block * {
+  color: inherit;
+}
+.ProseMirror .is-active.suggest-ins,
+.ProseMirror .is-active.suggest-ins-node,
+.ProseMirror .is-active.suggest-del,
+.ProseMirror .is-active.suggest-del-block {
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+  border-radius: 3px;
+}
+
+/* room on the right for the suggestion cards */
+.page.has-suggestions {
+  max-width: calc(708px + 2 * var(--page-pad) + 280px);
+  padding-right: calc(var(--page-pad) + 280px);
+}
+.suggest-cards {
+  position: absolute;
+  top: 0;
+  right: var(--page-pad);
+  width: 250px;
+}
+.suggest-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding: 9px 12px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--bg);
+  transition: top 0.15s var(--ease-out), box-shadow 0.15s;
+}
+.suggest-card:hover {
+  box-shadow: var(--menu-shadow);
+}
+.suggest-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 22px;
+}
+.suggest-card-head b {
+  font-weight: 600;
+}
+.suggest-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+}
+.suggest-card-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.suggest-card:hover .suggest-card-actions {
+  opacity: 1;
+}
+.suggest-card-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  color: var(--text-2);
+}
+.suggest-card-actions button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.suggest-card-body {
+  margin: 3px 0 0 27px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.suggest-card-body .add {
+  color: var(--blue);
+}
+
+.suggest-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 6px 6px 6px 12px;
+  min-height: 40px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 7%, var(--bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 18%, transparent);
+  animation: banner-in 0.26s var(--ease-out);
+}
+.suggest-bar-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+.suggest-bar-text b {
+  font-weight: 600;
+}
+.suggest-bar-text span {
+  color: var(--text-2);
+}
+.suggest-bar button {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--divider), 0 1px 2px rgba(15, 15, 15, 0.04);
+}
+.suggest-bar button:hover {
+  background: var(--hover);
+}
+.suggest-bar button.primary {
+  color: #fff;
+  background: var(--blue);
+  box-shadow: none;
+}
+.suggest-bar button.primary:hover {
+  background: var(--blue-hover);
+}

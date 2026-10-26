@@ -22,6 +22,7 @@ export function buildMenu(run: (cmd: MenuCommand) => void): Menu {
       label: app.name,
       submenu: [
         { role: 'about' },
+        cmd('Check for Updates…', 'check-updates'),
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },

@@ -1,27 +1,14 @@
-import { promises as fsp, watch, type FSWatcher, type Dirent } from 'fs'
-import { join, relative, sep, basename } from 'path'
+import { promises as fsp, existsSync, watch, type FSWatcher, type Dirent } from 'fs'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import { join, relative, sep, basename, dirname } from 'path'
 import type { FileEntry, IndexSnapshot, SearchHit, FsChange } from '@shared/types'
 
-const IGNORED_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'out',
-  'dist',
-  'build',
-  'release',
-  '.next',
-  '.nuxt',
-  '.venv',
-  'venv',
-  '__pycache__',
-  '.cache',
-  'coverage',
-  '.turbo',
-  'Pods',
-  'DerivedData',
-  'target',
-  '.Trash'
-])
+// Never indexed, gitignored or not: too big, or never docs.
+const ALWAYS_SKIP = new Set(['node_modules', '.git', '.next', '.nuxt', '.venv', 'venv', '__pycache__', '.cache', '.turbo', 'Pods', 'DerivedData', '.Trash'])
+// Outside a git repo there's no .gitignore to go by, so the usual build folders are hidden too.
+const BUILD_DIRS = new Set(['out', 'dist', 'build', 'release', 'coverage', 'target'])
+const run = promisify(execFile)
 // Dot-folders are hidden except the ones that hold docs worth editing.
 const VISIBLE_DOT_DIRS = new Set(['.claude', '.github'])
 const MD_RE = /\.(md|markdown)$/i
@@ -40,9 +27,25 @@ function isOtherText(name: string): boolean {
   return !name.startsWith('.') && !LOCKFILES.has(name) && !MD_RE.test(name) && TEXT_RE.test(name)
 }
 
-function skipDir(name: string): boolean {
-  if (IGNORED_DIRS.has(name)) return true
-  return name.startsWith('.') && !VISIBLE_DOT_DIRS.has(name)
+/** Is `dir` inside a git work tree? (Only then is git asked anything.) */
+function inGitRepo(dir: string): boolean {
+  for (let d = dir; ; d = dirname(d)) {
+    if (existsSync(join(d, '.git'))) return true
+    if (d === dirname(d)) return false
+  }
+}
+
+/** What git ignores under `root`: ignored folders (as `rel/`) and files, or null if git can't say. */
+async function gitIgnored(root: string): Promise<Set<string> | null> {
+  try {
+    const { stdout } = await run('git', ['-C', root, 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], {
+      timeout: 10_000,
+      maxBuffer: 64 * 1024 * 1024
+    })
+    return new Set(stdout.split('\0').filter(Boolean))
+  } catch {
+    return null
+  }
 }
 
 function extractTitle(content: string): string | null {
@@ -75,13 +78,22 @@ export class Workspace {
   private timer: NodeJS.Timeout | null = null
   /** content we wrote ourselves, so the watcher can ignore the echo */
   private ownWrites = new Map<string, string>()
+  /** files you opened inside a folder the index skips (out/, dist/…): listed and watched anyway */
+  private included = new Set<string>()
+
+  /** git-ignored paths under the root (folders end in `/`); null outside a git repo */
+  private ignored: Set<string> | null = null
+  private git = false
 
   constructor(
     readonly root: string,
-    private onChange: (change: FsChange) => void
+    private onChange: (change: FsChange) => void,
+    /** list gitignored files too (dimmed in the sidebar) */
+    private showIgnored: () => boolean = () => false
   ) {}
 
   async init(): Promise<void> {
+    this.git = inGitRepo(this.root)
     await this.scan()
     this.startWatching()
   }
@@ -101,6 +113,31 @@ export class Workspace {
     }
   }
 
+  private skipDir(name: string): boolean {
+    if (ALWAYS_SKIP.has(name) || (!this.git && BUILD_DIRS.has(name))) return true
+    return name.startsWith('.') && !VISIBLE_DOT_DIRS.has(name)
+  }
+
+  private isIgnored(rel: string, dir: boolean): boolean {
+    return !!this.ignored?.has(dir ? rel + '/' : rel)
+  }
+
+  /** A watched path that isn't listed: in a skipped folder, or gitignored while those are hidden. */
+  private hidden(rel: string): boolean {
+    const parts = rel.split('/')
+    if (parts.some((part, i) => (i < parts.length - 1 || !MD_RE.test(part)) && this.skipDir(part))) return true
+    if (!this.ignored || this.showIgnored()) return false
+    if (this.ignored.has(rel)) return true
+    for (let i = 1; i < parts.length; i++) if (this.ignored.has(parts.slice(0, i).join('/') + '/')) return true
+    return false
+  }
+
+  /** Rescan, e.g. after the show-ignored setting changed. */
+  async rescan(): Promise<void> {
+    this.unpublished = true
+    await this.flush()
+  }
+
   private toRel(p: string): string {
     return relative(this.root, p).split(sep).join('/')
   }
@@ -108,7 +145,10 @@ export class Workspace {
   private async scan(): Promise<Map<string, FileEntry>> {
     const found = new Map<string, FileEntry>()
     const others = new Map<string, FileEntry>()
-    const walk = async (dir: string) => {
+    if (this.git) this.ignored = await gitIgnored(this.root)
+    const show = this.showIgnored()
+    // `ign`: everything under this folder is gitignored
+    const walk = async (dir: string, ign = false) => {
       if (found.size + others.size >= MAX_FILES) return
       let entries: Dirent[]
       try {
@@ -116,12 +156,18 @@ export class Workspace {
       } catch {
         return
       }
-      const subdirs: string[] = []
+      const subdirs: [string, boolean][] = []
       for (const e of entries) {
         const p = join(dir, e.name)
         if (e.isDirectory()) {
-          if (!skipDir(e.name)) subdirs.push(p)
-        } else if ((e.isFile() || e.isSymbolicLink()) && MD_RE.test(e.name)) {
+          if (this.skipDir(e.name)) continue
+          const di = ign || this.isIgnored(this.toRel(p), true)
+          if (!di || show) subdirs.push([p, di])
+          continue
+        }
+        const fi = ign || this.isIgnored(this.toRel(p), false)
+        if (fi && !show) continue
+        if ((e.isFile() || e.isSymbolicLink()) && MD_RE.test(e.name)) {
           try {
             const st = await fsp.stat(p)
             if (!st.isFile()) continue
@@ -132,7 +178,8 @@ export class Workspace {
               name: e.name,
               mtime: st.mtimeMs,
               size: st.size,
-              title: prev && prev.mtime === st.mtimeMs ? prev.title : null
+              title: prev && prev.mtime === st.mtimeMs ? prev.title : null,
+              ignored: fi || undefined
             })
           } catch {
             /* vanished */
@@ -141,15 +188,27 @@ export class Workspace {
           try {
             const st = await fsp.stat(p)
             if (!st.isFile() || st.size > MAX_TEXT_BYTES) continue
-            others.set(p, { path: p, rel: this.toRel(p), name: e.name, mtime: st.mtimeMs, size: st.size, title: null })
+            others.set(p, { path: p, rel: this.toRel(p), name: e.name, mtime: st.mtimeMs, size: st.size, title: null, ignored: fi || undefined })
           } catch {
             /* vanished */
           }
         }
       }
-      await Promise.all(subdirs.map(walk))
+      await Promise.all(subdirs.map(([d, di]) => walk(d, di)))
     }
     await walk(this.root)
+    for (const p of this.included) {
+      if (found.has(p) || others.has(p)) continue
+      try {
+        const st = await fsp.stat(p)
+        if (!st.isFile()) continue
+        const entry = { path: p, rel: this.toRel(p), name: basename(p), mtime: st.mtimeMs, size: st.size, title: null }
+        if (MD_RE.test(p)) found.set(p, entry)
+        else if (st.size <= MAX_TEXT_BYTES) others.set(p, entry)
+      } catch {
+        /* gone */
+      }
+    }
     // refresh titles + content cache for new/changed files
     // other text files are cached too, so search covers their contents
     await Promise.all(
@@ -202,9 +261,9 @@ export class Workspace {
     try {
       this.watcher = watch(this.root, { recursive: true }, (_event, filename) => {
         if (!filename) return this.schedule('*')
-        const parts = filename.toString().split(sep)
-        if (parts.some((part, i) => (i < parts.length - 1 || !MD_RE.test(part)) && skipDir(part))) return
-        this.schedule(join(this.root, filename.toString()))
+        const p = join(this.root, filename.toString())
+        if (!this.included.has(p) && this.hidden(filename.toString().split(sep).join('/'))) return
+        this.schedule(p)
       })
       this.watcher.on('error', () => {
         /* root deleted or permissions changed */
@@ -247,6 +306,14 @@ export class Workspace {
       this.unpublished = false
       this.onChange({ root: this.root, changed, added, removed, snapshot: this.snapshot() })
     }
+  }
+
+  /** Index and watch a file opened from a skipped folder. */
+  async include(p: string): Promise<void> {
+    if (this.files.has(p) || this.others.has(p) || this.included.has(p)) return
+    if (!p.startsWith(this.root + sep) || !(MD_RE.test(p) || isOtherText(basename(p)))) return
+    this.included.add(p)
+    await this.flush()
   }
 
   async refresh(): Promise<void> {

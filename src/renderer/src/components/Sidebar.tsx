@@ -19,7 +19,8 @@ import {
   ExternalIcon,
   StarIcon,
   LinkIcon,
-  CodeIcon
+  CodeIcon,
+  EyeIcon
 } from './icons'
 import { PopoverMenu, type MenuItemDef } from './Menu'
 import type { OpenOptions } from '@/App'
@@ -36,6 +37,8 @@ export interface TreeNode {
   kind: 'dir' | 'file'
   title: string | null
   children: TreeNode[]
+  /** gitignored (a folder: everything in it is) */
+  ignored?: boolean
 }
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -57,11 +60,12 @@ export function buildTree(root: string, files: FileEntry[]): TreeNode {
       }
       parent = d
     }
-    parent.children.push({ name: f.name, rel: f.rel, path: f.path, kind: 'file', title: f.title, children: [] })
+    parent.children.push({ name: f.name, rel: f.rel, path: f.path, kind: 'file', title: f.title, children: [], ignored: f.ignored })
   }
   const sort = (n: TreeNode) => {
     n.children.sort((a, b) => (a.kind !== b.kind ? (a.kind === 'dir' ? -1 : 1) : collator.compare(a.name, b.name)))
     n.children.forEach(sort)
+    if (n.kind === 'dir' && n !== top) n.ignored = n.children.length > 0 && n.children.every((c) => c.ignored)
   }
   sort(top)
   return top
@@ -91,6 +95,8 @@ export interface SidebarProps {
   unseen: Set<string>
   showAllFiles: boolean
   onToggleAllFiles(): void
+  showIgnored: boolean
+  onToggleIgnored(): void
   current: string | null
   expanded: Set<string>
   favorites: string[]
@@ -316,6 +322,7 @@ export function Sidebar(props: SidebarProps) {
             { id: 'window', label: 'New window', icon: <PlusIcon size={18} />, hint: '⇧⌘N', onSelect: () => window.motion.newWindow() },
             { id: 'reveal', label: 'Reveal in Finder', icon: <ExternalIcon size={18} />, onSelect: () => void window.motion.reveal(root) },
             { id: 'allfiles', label: 'Show non-Markdown files', icon: <CodeIcon size={16} />, checked: props.showAllFiles, onSelect: props.onToggleAllFiles },
+            { id: 'ignored', label: 'Show gitignored files', icon: <EyeIcon size={16} />, checked: props.showIgnored, onSelect: props.onToggleIgnored },
             ...props.recentRoots
               .filter((r) => r !== root)
               .slice(0, 6)
@@ -400,7 +407,7 @@ const TreeRow = memo(function TreeRow(p: RowProps) {
   return (
     <>
       <div
-        className={`tree-row${isDir ? ' is-dir' : ''}${isOpen ? ' expanded' : ''}${selected ? ' selected' : ''}${p.dropTarget === node.path ? ' drop-target' : ''}`}
+        className={`tree-row${isDir ? ' is-dir' : ''}${isOpen ? ' expanded' : ''}${selected ? ' selected' : ''}${p.dropTarget === node.path ? ' drop-target' : ''}${node.ignored ? ' ignored' : ''}`}
         style={{ paddingLeft: 8 + depth * 14 }}
         data-path={node.path}
         title={node.title ? `${node.title}\n${node.rel}` : node.rel}

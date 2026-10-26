@@ -132,6 +132,13 @@ export function StarFilledIcon({ size = 18 }: P) {
 
 export const CodeIcon = svg(<path d="m7 6-4 4 4 4M13 6l4 4-4 4" />)
 
+export const SuggestIcon = svg(
+  <>
+    <path d="M12.6 4.4 15.6 7.4 8.5 14.5H5.5v-3l7.1-7.1Z" />
+    <path d="M11 6 14 9" />
+  </>
+)
+
 export const CheckIcon = svg(<path d="m4.5 10.5 3.5 3.5 7.5-8" />)
 
 export const LinkIcon = svg(

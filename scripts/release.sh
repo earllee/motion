@@ -4,6 +4,8 @@
 # credentials saved as a keychain profile:
 #   xcrun notarytool store-credentials motion-notary --apple-id <id> --team-id <team>
 # Override either with CSC_NAME / APPLE_KEYCHAIN_PROFILE.
+# Attach release/*.dmg, *.zip, *.blockmap and latest-mac.yml to the GitHub release:
+# the auto-updater reads latest-mac.yml and downloads the zips.
 set -e
 export CSC_NAME="${CSC_NAME:-Earl Lee (29RGKF5J9D)}"
 export APPLE_KEYCHAIN_PROFILE="${APPLE_KEYCHAIN_PROFILE:-motion-notary}"

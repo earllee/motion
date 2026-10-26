@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Editor } from '@tiptap/core'
 import { EditorContent } from '@tiptap/react'
@@ -21,6 +21,9 @@ import { linkEditStore } from '@/editor/Toolbar'
 import { slashStore } from '@/editor/extensions/slash'
 import { mentionStore } from '@/editor/extensions/pageMention'
 import { dropLineStore, blockDrag } from '@/editor/extensions/blockDrop'
+import { acceptChange, changesOf, computeReview, matchFormat, rebase, rejectChange, type Change } from '@/editor/review'
+import { suggestionMarks, suggestKey, suggestPlugin, type Suggestion } from '@/editor/suggestView'
+import { ensureBase, openBases, pendingSuggestions } from '@/suggestions'
 
 /** Menus and hover cards live in module-level stores; a new page must start with none open. */
 function resetEditorStores() {
@@ -36,7 +39,7 @@ import { setFindQuery, findStep, findInfo } from '@/editor/extensions/find'
 import { Properties } from './Properties'
 import { SourceEditor } from './SourceEditor'
 import { rectOf } from './Popover'
-import { CloseIcon, ArrowUpIcon, ArrowDownIcon, MarkdownIcon, AlertIcon } from './icons'
+import { CloseIcon, ArrowUpIcon, ArrowDownIcon, MarkdownIcon, AlertIcon, CheckIcon, SuggestIcon } from './icons'
 
 export type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'reloaded' | 'error'
 
@@ -158,6 +161,10 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
   propsRef.current = props
   const filesRef = useRef(files)
   filesRef.current = files
+  /** outside edits made while the page is open, shown as suggestions against the text it was opened with */
+  const reviewRef = useRef<{ review: ReturnType<typeof computeReview>; changes: Change[] } | null>(null)
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const reviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   pathRef.current = path
 
@@ -221,6 +228,7 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
       }
       dirty.current = false
       inflight.current = text
+      const before = lastSaved.current
       emitMeta('saving')
       let res: WriteResult
       try {
@@ -232,6 +240,13 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
       if (res.ok) {
         lastSaved.current = text
         mtimeRef.current = res.mtime
+        // your own edits aren't suggestions: fold them into the base
+        const base = openBases.get(pathRef.current)
+        const ed = editorRef.current
+        if (base !== undefined && base !== before && ed) {
+          openBases.set(pathRef.current, rebase(base, before, text, ed.schema))
+          scheduleReview()
+        } else if (base === before) openBases.set(pathRef.current, text)
         emitMeta(dirty.current ? 'unsaved' : 'saved')
         // renames ride the save queue so no write ever targets a path mid-rename
         saveChain.current = saveChain.current.then(maybeAutoRename)
@@ -327,6 +342,71 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
     setFirstIsH1(!!first && first.type.name === 'heading' && first.attrs.level === 1)
   }, [])
 
+  /** Diff the page against the text it was opened with and redraw the suggestions. */
+  const refreshReview = useCallback(() => {
+    if (reviewTimer.current) clearTimeout(reviewTimer.current)
+    reviewTimer.current = null
+    const ed = editorRef.current
+    if (!ed || ed.isDestroyed) return
+    const base = openBases.get(pathRef.current)
+    const saved = lastSaved.current
+    const cur = currentMarkdown()
+    // what you've typed but not saved yet isn't a suggestion either
+    const against = base === undefined ? undefined : base === saved ? cur : cur === saved ? base : rebase(base, saved, cur, ed.schema)
+    const r = against === undefined || against === cur ? null : computeReview(against, cur, ed.schema)
+    const changes = r ? changesOf(r) : []
+    reviewRef.current = r && changes.length ? { review: r, changes } : null
+    pendingSuggestions.set(pathRef.current, changes.length)
+    const marks = r && changes.length ? suggestionMarks(ed.state.doc, r, changes, ed.schema) : null
+    setSuggestions(marks?.items ?? [])
+    const show = marks?.set && rawRef.current === null && conflictRef.current === null
+    ed.view.dispatch(ed.state.tr.setMeta(suggestKey, show ? marks.set : DecorationSet.empty).setMeta('addToHistory', false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMarkdown])
+
+  const scheduleReview = useCallback(() => {
+    if (!openBases.has(pathRef.current)) return
+    if (reviewTimer.current) clearTimeout(reviewTimer.current)
+    reviewTimer.current = setTimeout(refreshReview, 200)
+  }, [refreshReview])
+
+  /** Replace the page's text (rejecting suggestions) and save it. */
+  const applyText = useCallback(
+    (text: string) => {
+      const ed = editorRef.current
+      if (rawRef.current !== null) {
+        rawRef.current = text
+        setRawText(text)
+      } else if (ed) loadInto(ed, text, true)
+      dirty.current = true
+      void save()
+      refreshReview()
+    },
+    [loadInto, save, refreshReview]
+  )
+
+  const suggestionActions = useRef({ accept: (_i: number) => {}, reject: (_i: number) => {}, acceptAll: () => {}, rejectAll: () => {} })
+  suggestionActions.current = {
+    accept: (i) => {
+      const r = reviewRef.current
+      if (!r?.changes[i]) return
+      openBases.set(pathRef.current, acceptChange(r.review, r.changes[i]))
+      refreshReview()
+    },
+    reject: (i) => {
+      const r = reviewRef.current
+      if (r?.changes[i]) applyText(matchFormat(rejectChange(r.review, r.changes[i]), lastSaved.current))
+    },
+    acceptAll: () => {
+      openBases.set(pathRef.current, currentMarkdown())
+      refreshReview()
+    },
+    rejectAll: () => {
+      const base = openBases.get(pathRef.current)
+      if (base !== undefined) applyText(base)
+    }
+  }
+
   // ---- load
   useEffect(() => {
     let cancelled = false
@@ -346,6 +426,7 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
         if (cancelled) return
         mtimeRef.current = mtime
         lastSaved.current = content
+        ensureBase(path, content)
         ed = new Editor({
           extensions: editorExtensions({
             docPath: () => pathRef.current,
@@ -363,7 +444,7 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
               else propsRef.current.toast(`No page named “${name}”`)
             },
             resolveWiki: (name) => resolveWiki(name),
-            plugins: [propertiesSlotPlugin(propsSlot, () => !!frontmatterRef.current)]
+            plugins: [propertiesSlotPlugin(propsSlot, () => !!frontmatterRef.current), suggestPlugin()]
           }),
           editorProps: {
             attributes: { spellcheck: String(propsRef.current.prefs.spellcheck) }
@@ -376,6 +457,7 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
           const first = ed!.state.doc.firstChild
           setFirstIsH1(!!first && first.type.name === 'heading' && first.attrs.level === 1)
           markDirty()
+          scheduleReview()
         })
         ed.on('selectionUpdate', () => {
           // a pending Untitled rename fires once the caret leaves the title
@@ -385,12 +467,17 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
         editorRef.current = ed
         setEditor(ed)
         emitMeta('saved')
+        // edits made while this page was in a background tab
+        refreshReview()
       })
       .catch((e) => {
         if (!cancelled) setError(String(e?.message || e))
       })
     return () => {
       cancelled = true
+      if (reviewTimer.current) clearTimeout(reviewTimer.current)
+      reviewRef.current = null
+      setSuggestions([])
       resetEditorStores()
       flushSync()
       const scroller = pageElRef.current?.parentElement
@@ -464,6 +551,7 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
       } else if (editorRef.current) {
         loadInto(editorRef.current, content, true)
       }
+      refreshReview()
       emitMeta('reloaded')
       setTimeout(() => statusRef.current === 'reloaded' && emitMeta('saved'), 2500)
     })
@@ -637,7 +725,8 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
     'page',
     prefs.fullWidth ? 'full-width' : '',
     prefs.font !== 'default' ? `font-${prefs.font}` : '',
-    prefs.smallText ? 'small-text' : ''
+    prefs.smallText ? 'small-text' : '',
+    suggestions.length && rawText === null ? 'has-suggestions' : ''
   ]
     .filter(Boolean)
     .join(' ')
@@ -666,6 +755,19 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
               Restore file
             </button>
           </Banner>
+        )}
+        {suggestions.length > 0 && conflict === null && !deleted && (
+          <div className="suggest-bar" role="status">
+            <SuggestIcon size={16} />
+            <span className="suggest-bar-text">
+              <b>{suggestions.length === 1 ? '1 suggestion' : `${suggestions.length} suggestions`}</b>
+              <span> · edited outside Motion while open</span>
+            </span>
+            <button onClick={() => suggestionActions.current.rejectAll()}>Reject all</button>
+            <button className="primary" onClick={() => suggestionActions.current.acceptAll()}>
+              Accept all
+            </button>
+          </div>
         )}
         {forcedRaw && (
           <Banner tone="info" title="Opened as markdown source" detail="Some of this file can’t be shown as blocks without changing it." />
@@ -733,6 +835,7 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
             onChange={(v) => {
               rawRef.current = v
               markDirty()
+              scheduleReview()
             }}
           />
         </>
@@ -748,7 +851,7 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
             <LinkHoverCard editor={editor} onOpen={openHref} />
             <CalloutKindMenu editor={editor} />
             <TableControls editor={editor} container={pageEl} />
-            <Outline editor={editor} scroller={pageEl?.parentElement ?? null} />
+            {!suggestions.length && <Outline editor={editor} scroller={pageEl?.parentElement ?? null} />}
             {frontmatter &&
               firstIsH1 &&
               createPortal(
@@ -759,10 +862,108 @@ export const PageView = forwardRef<PageHandle, Props>(function PageView(props, r
         )
       )}
       {rawText === null && editor && <div className="page-bottom" onMouseDown={(e) => (e.preventDefault(), clickBelow())} />}
+      {suggestions.length > 0 && conflict === null && !deleted && editor && rawText === null && (
+        <SuggestionCards
+          items={suggestions}
+          editor={editor}
+          page={pageEl}
+          onAccept={(i) => suggestionActions.current.accept(i)}
+          onReject={(i) => suggestionActions.current.reject(i)}
+        />
+      )}
       {findOpen && editor && rawText === null && <FindBar editor={editor} initial={props.findQuery} onClose={props.onCloseFind} />}
     </div>
   )
 })
+
+/** Notion-style cards in the right margin, one per suggestion, level with the change. */
+function SuggestionCards({
+  items,
+  editor,
+  page,
+  onAccept,
+  onReject
+}: {
+  items: Suggestion[]
+  editor: Editor
+  page: HTMLElement | null
+  onAccept(i: number): void
+  onReject(i: number): void
+}) {
+  const [tops, setTops] = useState<number[]>([])
+  const cards = useRef<(HTMLDivElement | null)[]>([])
+  const layout = useCallback(() => {
+    if (!page) return
+    const origin = page.getBoundingClientRect().top
+    const next: number[] = []
+    let floor = 0
+    items.forEach((_, i) => {
+      const mark = page.querySelector(`.ProseMirror [data-change="${i}"]`)
+      const top = Math.max(mark ? mark.getBoundingClientRect().top - origin - 6 : floor, floor)
+      next.push(Math.round(top))
+      floor = top + (cards.current[i]?.offsetHeight ?? 60) + 8
+    })
+    setTops((prev) => (prev.length === next.length && prev.every((t, k) => t === next[k]) ? prev : next))
+  }, [items, page])
+  useLayoutEffect(layout)
+  useEffect(() => {
+    const ro = new ResizeObserver(() => layout())
+    if (page) ro.observe(page)
+    editor.on('transaction', layout)
+    return () => {
+      ro.disconnect()
+      editor.off('transaction', layout)
+    }
+  }, [editor, page, layout])
+  const highlight = (i: number, on: boolean) =>
+    page?.querySelectorAll(`[data-change="${i}"]`).forEach((el) => el.classList.toggle('is-active', on))
+  const quote = (t: string) => `“${t.length > 90 ? t.slice(0, 90).trimEnd() + '…' : t}”`
+  return (
+    <div className="suggest-cards">
+      {items.map((s, i) => (
+        <div
+          key={i}
+          ref={(el) => {
+            cards.current[i] = el
+          }}
+          className="suggest-card"
+          style={{ top: tops[i] ?? 0 }}
+          onMouseEnter={() => highlight(i, true)}
+          onMouseLeave={() => highlight(i, false)}
+        >
+          <div className="suggest-card-head">
+            <span className="suggest-avatar">
+              <SuggestIcon size={13} />
+            </span>
+            <b>Outside edit</b>
+            <span className="suggest-card-actions">
+              <button title="Accept" onClick={() => onAccept(i)}>
+                <CheckIcon size={15} />
+              </button>
+              <button title="Reject" onClick={() => onReject(i)}>
+                <CloseIcon size={15} />
+              </button>
+            </span>
+          </div>
+          <div className="suggest-card-body">
+            {s.props ? (
+              <div>Change properties</div>
+            ) : s.added && s.removed ? (
+              <>
+                <div>Replace: {quote(s.removed)}</div>
+                <div className="add">with: {quote(s.added)}</div>
+              </>
+            ) : s.added ? (
+              <div className="add">Add: {quote(s.added)}</div>
+            ) : (
+              <div>Delete: {quote(s.removed || 'empty block')}</div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export function Banner({
   tone,

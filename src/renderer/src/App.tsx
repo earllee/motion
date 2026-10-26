@@ -8,6 +8,7 @@ import { PageView, type PageHandle, type PageMeta } from './components/PageView'
 import { CodeView } from './components/CodeView'
 import { SearchModal } from './components/SearchModal'
 import { FolderOpenIcon, LogoMark } from './components/icons'
+import { confirmClose, ensureBase, keepBases, mayHaveSuggestions, moveBase, pendingSuggestions } from './suggestions'
 
 /** One tab: the page it shows plus its own back/forward history. */
 interface Tab {
@@ -24,6 +25,8 @@ export interface OpenOptions {
   find?: string
   /** open in a new tab (⌘-click); `background` leaves the current tab focused */
   newTab?: boolean
+  /** the user already agreed to accept the current page's suggestions */
+  confirmed?: boolean
   background?: boolean
 }
 
@@ -51,6 +54,8 @@ export default function App() {
   const [sourceMode, setSourceMode] = useState(false)
   const [find, setFind] = useState<{ open: boolean; query?: string }>({ open: false })
   const [toast, setToastMsg] = useState<string | null>(null)
+  /** a downloaded update, waiting for a restart */
+  const [update, setUpdate] = useState<string | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
   const closedTabs = useRef<string[]>([])
   const lastBackground = useRef<{ opener: number; tab: number } | null>(null)
@@ -59,6 +64,8 @@ export default function App() {
   stateRef.current = state
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
+  /** is `p` open in a tab other than `except`? */
+  const openElsewhere = (p: string, except: number) => tabsRef.current.some((t) => t.id !== except && t.path === p)
   const activeRef = useRef(activeId)
   activeRef.current = activeId
 
@@ -174,6 +181,10 @@ export default function App() {
         if (opts.find) setFind({ open: true, query: opts.find })
         return
       }
+      if (!opts.confirmed && cur.path && mayHaveSuggestions(cur.path)) {
+        void confirmClose([cur.path], (p) => openElsewhere(p, cur.id)).then((ok) => ok && openFile(path, { ...opts, confirmed: true }))
+        return
+      }
       pageRef.current?.flush()
       leavePage(cur.path)
       setTabs((ts) =>
@@ -198,12 +209,16 @@ export default function App() {
   )
 
   const step = useCallback(
-    (dir: -1 | 1) => {
+    (dir: -1 | 1, confirmed = false) => {
       const cur = tabsRef.current.find((t) => t.id === activeRef.current)
       if (!cur) return
       const stack = dir === -1 ? cur.back : cur.fwd
       const target = stack[stack.length - 1]
       if (!target) return
+      if (!confirmed && cur.path && mayHaveSuggestions(cur.path)) {
+        void confirmClose([cur.path], (p) => openElsewhere(p, cur.id)).then((ok) => ok && step(dir, true))
+        return
+      }
       pageRef.current?.flush()
       leavePage(cur.path)
       setTabs((ts) =>
@@ -232,11 +247,15 @@ export default function App() {
   }, [])
 
   const closeTab = useCallback(
-    (id: number) => {
+    (id: number, confirmed = false) => {
       const ts = tabsRef.current
       const i = ts.findIndex((t) => t.id === id)
       if (i < 0) return
       const tab = ts[i]
+      if (!confirmed && tab.path && mayHaveSuggestions(tab.path)) {
+        void confirmClose([tab.path], (p) => openElsewhere(p, id)).then((ok) => ok && closeTab(id, true))
+        return
+      }
       if (ts.length === 1 && !tab.path) {
         api.closeWindow()
         return
@@ -303,6 +322,7 @@ export default function App() {
     (from: string, to: string) => {
       const remap = (p: string) => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : p)
       if (createdPages.delete(from)) createdPages.add(to)
+      moveBase(remap)
       // the page view keeps running across a rename, so docId stays put
       setTabs((ts) => ts.map((t) => ({ ...t, path: t.path ? remap(t.path) : null, back: t.back.map(remap), fwd: t.fwd.map(remap) })))
       closedTabs.current = closedTabs.current.map(remap)
@@ -379,6 +399,25 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // files open in a tab keep the text they were opened with, for suggestions
+  useEffect(() => {
+    const open = new Set(tabs.map((t) => t.path).filter((p): p is string => !!p))
+    keepBases(open)
+    for (const p of open) ensureBase(p)
+  }, [tabs])
+
+  // closing the window accepts suggestions, so main asks first (will-prevent-unload)
+  useEffect(() => {
+    const guard = (e: BeforeUnloadEvent) => {
+      if ([...pendingSuggestions.values()].some((n) => n > 0)) {
+        e.preventDefault()
+        e.returnValue = false
+      }
+    }
+    window.addEventListener('beforeunload', guard)
+    return () => window.removeEventListener('beforeunload', guard)
+  }, [])
+
   // persist open tabs
   useEffect(() => {
     if (!state || !tabs.length) return
@@ -392,6 +431,8 @@ export default function App() {
   // ---- main-process events
   useEffect(() => {
     const offFs = api.onFsChange((change) => {
+      // a file changed in a background tab: its suggestion count is stale until it's shown again
+      for (const p of change.changed) if (p !== currentRef.current?.path) pendingSuggestions.delete(p)
       setIndex(change.snapshot)
       setFsChange(change)
     })
@@ -430,7 +471,9 @@ export default function App() {
         s ? { ...s, ...shared, prefs: { ...s.prefs, ...shared.prefs, sidebarOpen: s.prefs.sidebarOpen, sidebarWidth: s.prefs.sidebarWidth } } : s
       )
     )
+    const offUpdate = api.onUpdateReady(setUpdate)
     return () => {
+      offUpdate()
       offFs()
       offOpen()
       offFull()
@@ -605,6 +648,8 @@ export default function App() {
           unseen={unseen}
           showAllFiles={showAll}
           onToggleAllFiles={() => setPrefs({ showAllFiles: !showAll })}
+          showIgnored={prefs.showIgnored}
+          onToggleIgnored={() => setPrefs({ showIgnored: !prefs.showIgnored })}
           current={current?.path ?? null}
           expanded={expanded}
           favorites={state.favorites}
@@ -775,6 +820,11 @@ export default function App() {
         />
       )}
       {toast && <div className="toast">{toast}</div>}
+      {update && (
+        <button className="update-pill" title="Installs when you quit, or restart now" onClick={() => api.installUpdate()}>
+          Restart to update to {update}
+        </button>
+      )}
     </div>
   )
 }

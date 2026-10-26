@@ -949,3 +949,26 @@ textarea {
     transform: translate(-50%, 6px);
   }
 }
+
+.update-pill {
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  z-index: 150;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--blue);
+  box-shadow: var(--menu-shadow);
+}
+.update-pill:hover {
+  background: var(--blue-hover);
+}
+
+/* gitignored files, listed when "Show gitignored files" is on */
+.tree-row.ignored {
+  opacity: 0.55;
+}

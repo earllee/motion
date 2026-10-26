@@ -24,6 +24,8 @@ export interface SourceInfo {
   sizes: number[]
   /** gaps[i] is the original text between block i and i+1 (null if unknown) */
   gaps: (string | null)[]
+  /** body offset where group i's source starts (-1 if unknown) */
+  starts: number[]
 }
 
 export const CALLOUT_KINDS = ['note', 'tip', 'important', 'warning', 'caution'] as const
@@ -147,9 +149,11 @@ export function parseMarkdown(input: string, schema: Schema, md: MarkdownItInsta
   const texts: (string | null)[] = []
   const sizes: number[] = []
   const gaps: (string | null)[] = []
+  const starts: number[] = []
   for (let i = 0; i < groups.length; i++) {
     const g = groups[i]
     sizes.push(g.nodes.length)
+    starts.push(g.start >= 0 ? at(g.start) : -1)
     if (g.start >= 0) {
       g.nodes.forEach((n, part) => index.set(n, { idx: i, part }))
       texts.push(body.slice(at(g.start), endAt(g.end)))
@@ -162,7 +166,7 @@ export function parseMarkdown(input: string, schema: Schema, md: MarkdownItInsta
   const lead = first && first.start >= 0 ? body.slice(0, at(first.start)) : groups.length === 0 ? body : ''
   const trail = last && last.start >= 0 ? body.slice(endAt(last.end)) : groups.length === 0 ? '' : body.endsWith('\n') ? '\n' : ''
 
-  return { doc, source: { bom, eol, frontmatter, lead, trail, index, texts, sizes, gaps } }
+  return { doc, source: { bom, eol, frontmatter, lead, trail, index, texts, sizes, gaps, starts } }
 }
 
 /** Is there a matching `</details>` block before the enclosing container closes? */
