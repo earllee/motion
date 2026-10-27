@@ -1,6 +1,6 @@
 import type { Node as PMNode, Schema, ResolvedPos } from '@tiptap/pm/model'
 import { Fragment } from '@tiptap/pm/model'
-import { NodeSelection, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
+import { EditorState, NodeSelection, TextSelection, type Transaction } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 
 /**
@@ -333,4 +333,25 @@ export function insertParagraphAfter(state: EditorState, info: BlockInfo, text =
 export function selectBlock(view: EditorView, pos: number) {
   const tr = view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos))
   view.dispatch(tr)
+}
+
+/**
+ * Typing `[] ` (or `[ ] `/`[x] `) at the start of a bullet or numbered item turns that
+ * item into a to-do. `from`–`to` is the typed marker, which is dropped. Extends `tr`
+ * (an input rule's transaction) and returns false if the marker isn't in such an item.
+ */
+export function itemToTodo(tr: Transaction, from: number, to: number, checked = false): boolean {
+  const $from = tr.doc.resolve(from)
+  const d = $from.depth
+  if (d < 2 || $from.parentOffset !== 0 || $from.index(d - 1) !== 0) return false
+  if ($from.node(d - 1).type.name !== 'listItem') return false
+  const pos = $from.before(d - 1)
+  tr.delete(from, to)
+  const state = EditorState.create({ doc: tr.doc, selection: TextSelection.create(tr.doc, from) })
+  const turned = turnInto(state, { pos, node: tr.doc.nodeAt(pos)!, depth: d - 1 }, 'taskList')!
+  turned.steps.forEach((step) => tr.step(step))
+  const $sel = tr.doc.resolve(turned.selection.from)
+  tr.setSelection(TextSelection.create(tr.doc, $sel.pos))
+  if (checked) tr.setNodeMarkup($sel.before($sel.depth - 1), null, { checked: true })
+  return true
 }
