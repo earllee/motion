@@ -192,6 +192,9 @@ textarea {
   -webkit-mask-image: none;
   text-overflow: ellipsis;
 }
+.tab.preview .tab-title {
+  font-style: italic;
+}
 .tab-close {
   width: 20px;
   height: 20px;

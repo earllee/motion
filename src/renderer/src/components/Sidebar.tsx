@@ -26,8 +26,9 @@ import { PopoverMenu, type MenuItemDef } from './Menu'
 import type { OpenOptions } from '@/App'
 
 /** ⌘-click or middle-click opens in a background tab. */
-const openOpts = (e: React.MouseEvent): OpenOptions | undefined =>
-  e.metaKey || e.button === 1 ? { newTab: true, background: true } : undefined
+/** ⌘/middle-click opens a background tab; a plain click previews the page (double-click keeps it) */
+const openOpts = (e: React.MouseEvent): OpenOptions =>
+  e.metaKey || e.button === 1 ? { newTab: true, background: true } : { preview: true }
 import { rectOf, type AnchorRect } from './Popover'
 
 export interface TreeNode {
@@ -364,6 +365,7 @@ function FlatRow({
       className={`tree-row${selected ? ' selected' : ''}`}
       style={{ paddingLeft: 8 }}
       onClick={(e) => onOpen(file.path, openOpts(e))}
+      onDoubleClick={(e) => !e.metaKey && onOpen(file.path)}
       onAuxClick={(e) => e.button === 1 && onOpen(file.path, openOpts(e))}
       onContextMenu={(e) => {
         e.preventDefault()
@@ -432,6 +434,7 @@ const TreeRow = memo(function TreeRow(p: RowProps) {
           }
         }}
         onClick={(e) => (isDir ? p.onToggle(node.rel) : p.onOpen(node.path, openOpts(e)))}
+        onDoubleClick={(e) => !isDir && !e.metaKey && p.onOpen(node.path)}
         onAuxClick={(e) => !isDir && e.button === 1 && p.onOpen(node.path, openOpts(e))}
         onContextMenu={(e) => {
           e.preventDefault()
