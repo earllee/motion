@@ -46,6 +46,8 @@ npm run dev          # hot-reloading dev build (first run downloads Electron, ~1
 npm run package      # → release/mac-arm64/Motion.app (ad-hoc signed)
 ```
 
+Releases are cut nightly from `main` by GitHub Actions, or on demand; see [docs/releasing.md](docs/releasing.md).
+
 Open things from the terminal (or from Claude Code):
 
 ```sh
