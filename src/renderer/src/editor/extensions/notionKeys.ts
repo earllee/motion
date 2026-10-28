@@ -9,6 +9,7 @@ import {
   deleteBlock,
   duplicateBlock,
   itemToTodo,
+  todoToBullet,
   moveBlock,
   placeCaret,
   turnInto,
@@ -338,6 +339,13 @@ export const NotionKeys = Extension.create({
         find: /^\[([ x])?\]\s$/,
         handler: ({ state, range, match }) => {
           if (!itemToTodo(state.tr, range.from, range.to, match[1] === 'x')) return null
+        }
+      }),
+      // and `- ` in a to-do makes it a bullet again
+      new InputRule({
+        find: /^[-+*]\s$/,
+        handler: ({ state, range }) => {
+          if (!todoToBullet(state.tr, range.from, range.to)) return null
         }
       }),
       // typing [text](url) makes a link

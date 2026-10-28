@@ -4,7 +4,7 @@ import { EditorState, TextSelection } from '@tiptap/pm/state'
 import { baseExtensions } from '@/editor/schema'
 import { parseMarkdown } from '@/editor/markdown/parse'
 import { serializeMarkdown } from '@/editor/markdown/serialize'
-import { itemToTodo } from '@/editor/blocks'
+import { itemToTodo, todoToBullet } from '@/editor/blocks'
 
 const schema = getSchema(baseExtensions())
 
@@ -44,5 +44,42 @@ describe('[] in a list item', () => {
 
   it('leaves plain paragraphs to the default rule', () => {
     expect(typeMarker('hello\n\nworld\n', 'world', '[]')).toBeNull()
+  })
+})
+
+/** Type `- ` at the start of the text `at` in `md`, as the bullet input rule sees it. */
+function typeDash(md: string, at: string) {
+  const { doc } = parseMarkdown(md, schema)
+  let start = -1
+  doc.descendants((n, pos) => {
+    if (start < 0 && n.isTextblock && n.textContent === at) start = pos + 1
+  })
+  let state = EditorState.create({ doc, selection: TextSelection.create(doc, start) })
+  state = state.apply(state.tr.insertText('-'))
+  const tr = state.tr
+  const result = todoToBullet(tr, start, start + 1)
+  if (result) {
+    expect(tr.selection.$from.node(-1).type.name).toBe('listItem')
+    expect(tr.selection.$from.parentOffset).toBe(0)
+  }
+  return result ? serializeMarkdown(tr.doc, null).trim() : null
+}
+
+describe('- in a to-do', () => {
+  it('turns an empty to-do into a bullet', () => {
+    expect(typeDash('- [ ] one\n- [ ] \n', '')).toBe('- [ ] one\n-')
+  })
+
+  it('splits the list around the item and keeps its text', () => {
+    expect(typeDash('- [ ] one\n- [x] two\n- [ ] three\n', 'two')).toBe('- [ ] one\n- two\n- [ ] three')
+  })
+
+  it('works in nested to-dos', () => {
+    expect(typeDash('- [ ] one\n  - [ ] two\n', 'two')).toBe('- [ ] one\n  - two')
+  })
+
+  it('leaves bullets and paragraphs to the default rule', () => {
+    expect(typeDash('- one\n- two\n', 'two')).toBeNull()
+    expect(typeDash('hello\n\nworld\n', 'world')).toBeNull()
   })
 })

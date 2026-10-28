@@ -341,17 +341,27 @@ export function selectBlock(view: EditorView, pos: number) {
  * (an input rule's transaction) and returns false if the marker isn't in such an item.
  */
 export function itemToTodo(tr: Transaction, from: number, to: number, checked = false): boolean {
+  if (!convertItem(tr, from, to, 'listItem', 'taskList')) return false
+  const $sel = tr.selection.$from
+  if (checked) tr.setNodeMarkup($sel.before($sel.depth - 1), null, { checked: true })
+  return true
+}
+
+/** The inverse of `itemToTodo`: typing `- ` at the start of a to-do makes it a bullet. */
+export function todoToBullet(tr: Transaction, from: number, to: number): boolean {
+  return convertItem(tr, from, to, 'taskItem', 'bulletList')
+}
+
+function convertItem(tr: Transaction, from: number, to: number, itemType: string, kind: BlockKind): boolean {
   const $from = tr.doc.resolve(from)
   const d = $from.depth
   if (d < 2 || $from.parentOffset !== 0 || $from.index(d - 1) !== 0) return false
-  if ($from.node(d - 1).type.name !== 'listItem') return false
+  if ($from.node(d - 1).type.name !== itemType) return false
   const pos = $from.before(d - 1)
   tr.delete(from, to)
   const state = EditorState.create({ doc: tr.doc, selection: TextSelection.create(tr.doc, from) })
-  const turned = turnInto(state, { pos, node: tr.doc.nodeAt(pos)!, depth: d - 1 }, 'taskList')!
+  const turned = turnInto(state, { pos, node: tr.doc.nodeAt(pos)!, depth: d - 1 }, kind)!
   turned.steps.forEach((step) => tr.step(step))
-  const $sel = tr.doc.resolve(turned.selection.from)
-  tr.setSelection(TextSelection.create(tr.doc, $sel.pos))
-  if (checked) tr.setNodeMarkup($sel.before($sel.depth - 1), null, { checked: true })
+  tr.setSelection(TextSelection.create(tr.doc, turned.selection.from))
   return true
 }
