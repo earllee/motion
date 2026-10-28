@@ -8,6 +8,7 @@ import {
   currentBlock,
   deleteBlock,
   duplicateBlock,
+  itemToTodo,
   moveBlock,
   placeCaret,
   turnInto,
@@ -332,6 +333,13 @@ export const NotionKeys = Extension.create({
       textblockTypeInputRule({ find: /^```$/, type: schema.nodes.codeBlock }),
       // `>` + space after `>` makes a toggle (`>> `)
       wrappingInputRule({ find: /^>>\s$/, type: schema.nodes.toggle }),
+      // `[] ` in a bullet/numbered item makes it a to-do (TipTap's rule would nest a new list)
+      new InputRule({
+        find: /^\[([ x])?\]\s$/,
+        handler: ({ state, range, match }) => {
+          if (!itemToTodo(state.tr, range.from, range.to, match[1] === 'x')) return null
+        }
+      }),
       // typing [text](url) makes a link
       new InputRule({
         find: /(?:^|[^!])\[([^[\]]+)\]\(([^()\s]+)\)$/,
