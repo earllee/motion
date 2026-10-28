@@ -5,6 +5,8 @@ export interface TabView {
   id: number
   title: string
   path: string | null
+  /** shown in italics; replaced by the next sidebar click */
+  preview?: boolean
 }
 
 interface Props {
@@ -18,6 +20,7 @@ interface Props {
   onBack(): void
   onForward(): void
   onSelect(id: number): void
+  onPin(id: number): void
   onClose(id: number): void
   onNew(): void
   onMove(id: number, toIndex: number): void
@@ -27,7 +30,7 @@ interface Props {
 
 /** Notion-desktop style tab strip across the top of the window. */
 export function Tabbar(props: Props) {
-  const { tabs, activeId, fullscreen, sidebarOpen, onSelect, onClose, onNew, onMove, onDropPath, onMenu } = props
+  const { tabs, activeId, fullscreen, sidebarOpen, onSelect, onPin, onClose, onNew, onMove, onDropPath, onMenu } = props
   const [dropAt, setDropAt] = useState<number | null>(null)
 
   const indexFromEvent = (e: React.DragEvent, i: number) => {
@@ -76,8 +79,8 @@ export function Tabbar(props: Props) {
           return (
             <div
               key={t.id}
-              className={`tab${active ? ' active' : ''}${i === tabs.length - 1 ? ' last' : ''}${dropAt === i ? ' drop-before' : ''}${dropAt === i + 1 && i === tabs.length - 1 ? ' drop-after' : ''}`}
-              title={t.path ?? 'New tab'}
+              className={`tab${active ? ' active' : ''}${t.preview ? ' preview' : ''}${i === tabs.length - 1 ? ' last' : ''}${dropAt === i ? ' drop-before' : ''}${dropAt === i + 1 && i === tabs.length - 1 ? ' drop-after' : ''}`}
+              title={t.path ? (t.preview ? `${t.path}\nPreview — double-click to keep open` : t.path) : 'New tab'}
               draggable
               onDragStart={(e) => {
                 e.dataTransfer.setData('application/x-motion-tab', String(t.id))
@@ -96,6 +99,7 @@ export function Tabbar(props: Props) {
               onMouseDown={(e) => {
                 if (e.button === 0) onSelect(t.id)
               }}
+              onDoubleClick={() => onPin(t.id)}
               onAuxClick={(e) => {
                 if (e.button === 1) onClose(t.id)
               }}

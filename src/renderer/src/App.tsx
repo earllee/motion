@@ -18,6 +18,8 @@ interface Tab {
   docId: number
   back: string[]
   fwd: string[]
+  /** a preview tab (italic title) is reused by the next sidebar click until it's pinned */
+  preview?: boolean
 }
 
 export interface OpenOptions {
@@ -28,6 +30,8 @@ export interface OpenOptions {
   /** the user already agreed to accept the current page's suggestions */
   confirmed?: boolean
   background?: boolean
+  /** open in the preview tab (sidebar click): reuses it rather than piling up tabs */
+  preview?: boolean
 }
 
 let docCounter = 0
@@ -153,11 +157,28 @@ export default function App() {
     [expandTo, noteRecent]
   )
 
+  /** Turn a preview tab into a normal one, so the next sidebar click doesn't replace it. */
+  const pinTab = useCallback((id: number) => {
+    setTabs((ts) => (ts.some((t) => t.id === id && t.preview) ? ts.map((t) => (t.id === id ? { ...t, preview: false } : t)) : ts))
+  }, [])
+
   const openFile = useCallback(
     (path: string, opts: OpenOptions = {}) => {
-      const cur = tabsRef.current.find((t) => t.id === activeRef.current)
-      if (opts.newTab || !cur) {
-        const tab = makeTab(path)
+      const ts = tabsRef.current
+      const cur = ts.find((t) => t.id === activeRef.current)
+      // previews go to the tab already showing the page, else the preview tab (or an empty one), else a new tab
+      let target = cur
+      if (opts.preview && cur && cur.path !== path) {
+        const existing = ts.find((t) => t.path === path)
+        if (existing) {
+          activate(existing.id)
+          if (opts.find) setFind({ open: true, query: opts.find })
+          return
+        }
+        target = cur.preview || !cur.path ? cur : ts.find((t) => t.preview)
+      }
+      if (opts.newTab || !cur || !target) {
+        const tab = { ...makeTab(path), preview: !!opts.preview }
         let at = cur ? tabsRef.current.indexOf(cur) + 1 : tabsRef.current.length
         // consecutive background tabs line up after each other, like Chrome
         const prev = lastBackground.current
@@ -177,35 +198,40 @@ export default function App() {
         }
         return
       }
-      if (cur.path === path) {
+      if (target.path === path) {
+        // opening the page again for real (double-click) keeps its preview tab
+        if (!opts.preview) pinTab(target.id)
         if (opts.find) setFind({ open: true, query: opts.find })
         return
       }
-      if (!opts.confirmed && cur.path && mayHaveSuggestions(cur.path)) {
-        void confirmClose([cur.path], (p) => openElsewhere(p, cur.id)).then((ok) => ok && openFile(path, { ...opts, confirmed: true }))
+      const into = target
+      if (!opts.confirmed && into.path && mayHaveSuggestions(into.path)) {
+        void confirmClose([into.path], (p) => openElsewhere(p, into.id)).then((ok) => ok && openFile(path, { ...opts, confirmed: true }))
         return
       }
       pageRef.current?.flush()
-      leavePage(cur.path)
-      setTabs((ts) =>
-        ts.map((t) =>
-          t.id !== cur.id
+      leavePage(into.path)
+      setTabs((xs) =>
+        xs.map((t) =>
+          t.id !== into.id
             ? t
             : {
                 ...t,
                 path,
                 docId: ++docCounter,
                 back: opts.history !== false && t.path ? [...t.back, t.path] : t.back,
-                fwd: opts.history !== false ? [] : t.fwd
+                fwd: opts.history !== false ? [] : t.fwd,
+                preview: !!opts.preview
               }
         )
       )
+      if (into.id !== cur.id) setActiveId(into.id)
       resetPageUi()
       if (opts.find) setFind({ open: true, query: opts.find })
       expandTo(path)
       noteRecent(path)
     },
-    [expandTo, leavePage, noteRecent]
+    [activate, expandTo, leavePage, noteRecent, pinTab]
   )
 
   const step = useCallback(
@@ -634,9 +660,15 @@ export default function App() {
   }
 
   const prefs = state.prefs
+  // editing a preview tab keeps it
+  const onPageMeta = (m: PageMeta) => {
+    setMeta(m)
+    if (m.status === 'unsaved' && active) pinTab(active.id)
+  }
   const tabViews = tabs.map((t) => ({
     id: t.id,
     path: t.path,
+    preview: !!t.preview,
     title: !t.path ? 'New tab' : t.id === activeId && meta.title ? meta.title : titles.get(t.path) ?? stemOf(t.path)
   }))
 
@@ -705,6 +737,7 @@ export default function App() {
           onBack={() => step(-1)}
           onForward={() => step(1)}
           onSelect={activate}
+          onPin={pinTab}
           onClose={closeTab}
           onNew={newTab}
           onMove={moveTab}
@@ -782,7 +815,7 @@ export default function App() {
           />
           <div className="scroller">
             {current && current.path && !isMarkdownPath(current.path) ? (
-              <CodeView key={current.id} ref={pageRef} path={current.path} prefs={prefs} fsChange={fsChange} onMeta={setMeta} toast={showToast} />
+              <CodeView key={current.id} ref={pageRef} path={current.path} prefs={prefs} fsChange={fsChange} onMeta={onPageMeta} toast={showToast} />
             ) : current ? (
               <PageView
                 key={current.id}
@@ -798,7 +831,7 @@ export default function App() {
                 onCloseFind={() => setFind({ open: false })}
                 onNavigate={(p, opts) => openFile(p, opts)}
                 onRenamed={onRenamed}
-                onMeta={setMeta}
+                onMeta={onPageMeta}
                 toast={showToast}
               />
             ) : (
