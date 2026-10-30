@@ -1,0 +1,123 @@
+# Cut a signed, notarized release from main: every night if anything merged since
+# the last release, or on demand from Actions → Release → Run workflow.
+# Needs the repository secrets listed in docs/releasing.md.
+name: Release
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # 08:00 UTC, midnight Pacific
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      force:
+        description: Release even if nothing changed since the last release
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+      version: ${{ steps.check.outputs.version }}
+      previous: ${{ steps.check.outputs.previous }}
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - id: check
+        env:
+          BUMP: ${{ inputs.bump || 'patch' }}
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+          sha=$(git rev-parse HEAD)
+          if [ -n "$prev" ]; then count=$(git rev-list --count "$prev..HEAD"); else count=$(git rev-list --count HEAD); fi
+          version=$(node scripts/next-version.mjs "$prev" "$BUMP")
+          echo "previous=$prev" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$count" -gt 0 ] || [ "$FORCE" = "true" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "Releasing v$version: $count commit(s) since ${prev:-the start}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing merged since $prev, skipping" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  release:
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      PREVIOUS: ${{ needs.check.outputs.previous }}
+      SHA: ${{ needs.check.outputs.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      # A throwaway keychain, made the default so release.sh finds the signing
+      # identity and the "motion-notary" notarytool profile without changes
+      - name: Set up signing
+        env:
+          CERT_P12_BASE64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for v in CERT_P12_BASE64 CERT_PASSWORD APPLE_ID APPLE_APP_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "$(printenv $v)" ]; then echo "::error::Missing secret for $v, see docs/releasing.md"; exit 1; fi
+          done
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          pass=$(openssl rand -hex 16)
+          security create-keychain -p "$pass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$pass" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$keychain"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pass" "$keychain" > /dev/null
+          xcrun notarytool store-credentials motion-notary --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --keychain "$keychain"
+          echo "APPLE_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      - name: Build, sign and notarize
+        run: |
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          sh scripts/release.sh
+
+      - name: Publish
+        run: |
+          node scripts/release-notes.mjs "$VERSION" "$PREVIOUS" "$SHA" release > "$RUNNER_TEMP/notes.md"
+          gh release create "v$VERSION" --target "$SHA" --title "Motion $VERSION" --notes-file "$RUNNER_TEMP/notes.md" \
+            release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
