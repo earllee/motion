@@ -25,17 +25,18 @@ import {
   selectedBlocks,
   turnSelection
 } from '../blockSelection'
+import { outdentListItem } from '../listIndent'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 const isItem = (n: PMNode | null | undefined) => !!n && (n.type.name === 'listItem' || n.type.name === 'taskItem')
 
-/** The innermost list item (bullet, numbered or to-do) at the selection start, and whether it is nested. */
+/** The innermost list item (bullet, numbered or to-do) at the selection start. */
 function listItemAt(state: EditorState) {
   const { $from } = state.selection
   // a block selection of items starts between them
-  if (isItem($from.nodeAfter)) return { type: $from.nodeAfter!.type, nested: isItem($from.node($from.depth - 1)) }
+  if (isItem($from.nodeAfter)) return { type: $from.nodeAfter!.type }
   for (let d = $from.depth; d > 0; d--) {
-    if (isItem($from.node(d))) return { type: $from.node(d).type, nested: d >= 3 && isItem($from.node(d - 2)) }
+    if (isItem($from.node(d))) return { type: $from.node(d).type }
   }
   return null
 }
@@ -317,9 +318,8 @@ export const NotionKeys = Extension.create({
             }
           }
         }
-        // top-level items stay in their list
-        const item = listItemAt(state)
-        if (item?.nested) liftListItem(item.type)(state, dispatch)
+        // nested items move out one level and keep their kind; top-level items stay put
+        outdentListItem(state, dispatch)
         return true
       })
     }
