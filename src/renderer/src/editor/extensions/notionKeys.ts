@@ -41,6 +41,47 @@ function listItemAt(state: EditorState) {
   return null
 }
 
+const isList = (n: PMNode | null | undefined) =>
+  !!n && (n.type.name === 'bulletList' || n.type.name === 'orderedList' || n.type.name === 'taskList')
+
+/**
+ * Tab on the first item(s) of a list that sits right after another list, e.g. a to-do
+ * after a bullet (the two kinds live in separate lists). sinkListItem can't nest an item
+ * with no sibling above it, so move the items under the last item of the list above,
+ * as a nested list of their own kind.
+ */
+export function sinkIntoPreviousList(state: EditorState, dispatch?: EditorView['dispatch']) {
+  const sel = state.selection
+  const range = sel.$from.blockRange(sel.$to, (n) => isList(n))
+  if (!range || range.startIndex !== 0) return false
+  const list = range.parent
+  const listPos = range.$from.before(range.depth)
+  const prev = state.doc.resolve(listPos).nodeBefore
+  if (!isList(prev) || !isItem(prev!.lastChild)) return false
+  const items: PMNode[] = []
+  for (let i = range.startIndex; i < range.endIndex; i++) items.push(list.child(i))
+  const lastItem = prev!.lastChild!
+  const intoExisting = lastItem.lastChild?.type === list.type
+  // listPos - 2 is the end of the last item's content; one more step in is the end of its nested list
+  const insertAt = intoExisting ? listPos - 3 : listPos - 2
+  const itemsStart = intoExisting ? insertAt : insertAt + 1
+  const shift = itemsStart - range.start
+  if (!dispatch) return true
+  const tr = state.tr
+  if (range.endIndex === list.childCount) tr.delete(listPos, listPos + list.nodeSize)
+  else tr.delete(range.start, range.end)
+  tr.insert(insertAt, intoExisting ? items : list.type.create(list.attrs, items))
+  if (sel instanceof BlockRangeSelection) {
+    tr.setSelection(new BlockRangeSelection(tr.doc, sel.anchorBlock + shift, sel.headBlock + shift))
+  } else if (sel instanceof NodeSelection) {
+    tr.setSelection(NodeSelection.create(tr.doc, sel.from + shift))
+  } else {
+    tr.setSelection(TextSelection.create(tr.doc, sel.anchor + shift, sel.head + shift))
+  }
+  dispatch(tr.scrollIntoView())
+  return true
+}
+
 const atStartOfTextblock = (state: EditorState) => {
   const { $from, empty } = state.selection
   return empty && $from.parent.isTextblock && $from.parentOffset === 0
@@ -277,7 +318,7 @@ export const NotionKeys = Extension.create({
         // nest the item (or selected items) under the one above it
         const item = listItemAt(state)
         if (item) {
-          sinkListItem(item.type)(state, dispatch)
+          if (!sinkListItem(item.type)(state, dispatch)) sinkIntoPreviousList(state, dispatch)
           return true
         }
         // nest a paragraph under the list item right above it
