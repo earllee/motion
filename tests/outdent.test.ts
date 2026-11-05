@@ -6,6 +6,8 @@ import { parseMarkdown } from '@/editor/markdown/parse'
 import { serializeMarkdown } from '@/editor/markdown/serialize'
 import { BlockRangeSelection } from '@/editor/blockSelection'
 import { outdentListItem } from '@/editor/listIndent'
+import { sinkIntoPreviousList } from '@/editor/extensions/notionKeys'
+import { sinkListItem } from '@tiptap/pm/schema-list'
 
 const schema = getSchema(baseExtensions())
 
@@ -86,5 +88,24 @@ describe('Shift-Tab on a nested list item', () => {
     expect(serializeMarkdown(next.doc, null).trim()).toBe('- [ ] a\n- b\n- c')
     expect(next.selection).toBeInstanceOf(BlockRangeSelection)
     expect(next.doc.slice(next.selection.from, next.selection.to).content.textBetween(0, next.selection.to - next.selection.from, '|')).toBe('b|c')
+  })
+})
+
+describe('Shift-Tab undoes Tab', () => {
+  it.each([
+    '- one\n- [x] two',
+    '- [ ] one\n- two',
+    '- one\n  - [ ] a\n- [x] two'
+  ])('round-trips %j', (md) => {
+    const { doc } = parseMarkdown(md + '\n', schema)
+    const at = find(doc, md.endsWith('two') ? 'two' : '') + 1
+    let state = EditorState.create({ doc, selection: TextSelection.create(doc, at) })
+    const dispatch = (tr: import('@tiptap/pm/state').Transaction) => (state = state.apply(tr))
+    const item = state.selection.$from.node(-1).type
+    if (!sinkListItem(item)(state, dispatch)) sinkIntoPreviousList(state, dispatch)
+    expect(serializeMarkdown(state.doc, null).trim()).not.toBe(md)
+    expect(outdentListItem(state, dispatch)).toBe(true)
+    expect(serializeMarkdown(state.doc, null).trim()).toBe(md)
+    expect(state.selection.$from.parent.textContent).toBe('two')
   })
 })
