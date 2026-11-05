@@ -26,6 +26,7 @@ import {
   turnSelection
 } from '../blockSelection'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { moveListItems } from '../moveItems'
 
 const isItem = (n: PMNode | null | undefined) => !!n && (n.type.name === 'listItem' || n.type.name === 'taskItem')
 
@@ -396,12 +397,14 @@ function moveSelected(state: EditorState, dispatch: EditorView['dispatch'], dir:
     }
   }
   if (sel instanceof BlockRangeSelection) {
-    const tr = moveBlockRange(state, sel, dir)
+    // list items move across nesting levels; other blocks swap with their siblings
+    const tr = isItem(sel.$from.nodeAfter) ? moveListItems(state, sel.from, sel.to, dir) : moveBlockRange(state, sel, dir)
     if (tr) dispatch(tr)
     return true
   }
   const info = currentBlock(state)
-  const tr = info && moveBlock(state, info, dir)
+  const tr =
+    info && (isItem(info.node) ? moveListItems(state, info.pos, info.pos + info.node.nodeSize, dir) : moveBlock(state, info, dir))
   if (tr) dispatch(tr)
   return true
 }
