@@ -5,6 +5,25 @@ import type { EditorView } from '@tiptap/pm/view'
 import { parseMarkdown } from '../markdown/parse'
 import { serializeFragment, serializeInline } from '../markdown/serialize'
 
+/**
+ * A copy that stays inside one line of text, even a line in a list item or quote,
+ * becomes just that text: no bullet, number or to-do marker comes along. Copies
+ * that span lines keep their structure.
+ */
+export function textOnlySlice(slice: Slice): Slice {
+  let content = slice.content
+  let openStart = slice.openStart
+  let openEnd = slice.openEnd
+  while (content.childCount === 1 && openStart > 0 && openEnd > 0) {
+    const child = content.firstChild!
+    if (child.isTextblock) return content === slice.content ? slice : new Slice(content, openStart, openEnd)
+    content = child.content
+    openStart--
+    openEnd--
+  }
+  return slice
+}
+
 /** Markdown for a copied slice; inline text when the copy is inside one block. */
 export function sliceToMarkdown(slice: Slice): string {
   let content = slice.content
@@ -103,6 +122,7 @@ export const MarkdownClipboard = Extension.create<{ onImage?: (file: File) => Pr
       new Plugin({
         key: new PluginKey('markdownClipboard'),
         props: {
+          transformCopied: (slice) => textOnlySlice(slice),
           clipboardTextSerializer: (slice) => sliceToMarkdown(slice),
           clipboardTextParser: (text, $context, plain, view) => {
             if ($context.parent.type.spec.code || plain) {
